@@ -46,8 +46,24 @@ namespace CustomProceduralParts
             ? ProceduralShapeSpine.ProfileOutline(builtIn.Value, 1f, 1f, 0f, 0f, 0f)
             : (_unit ??= SectionGeometry.Resample(verts, ProceduralShapeSpine.Sides));
 
-        // Starting vertices for the editor: a custom's own polygon, or a built-in's default outline.
-        public List<Vector2> EditableVerts() => builtIn.HasValue ? new List<Vector2>(UnitOutline) : new List<Vector2>(verts);
+        // Starting vertices for the editor: a custom's own polygon, or a built-in's default outline minus
+        // the filler points along its straight runs (a Rectangle opens as its 4 corners, leaving room to
+        // add vertices; curved sections keep their samples).
+        public List<Vector2> EditableVerts()
+        {
+            if (!builtIn.HasValue) return new List<Vector2>(verts);
+            var o = new List<Vector2>(UnitOutline);
+            for (bool removed = true; removed && o.Count > 3;)
+            {
+                removed = false;
+                for (int i = 0; i < o.Count && o.Count > 3; i++)
+                {
+                    Vector2 a = o[(i + o.Count - 1) % o.Count] - o[i], b = o[(i + 1) % o.Count] - o[i];
+                    if (Mathf.Abs(a.x * b.y - a.y * b.x) <= 1e-4f * a.magnitude * b.magnitude) { o.RemoveAt(i); removed = true; i--; }
+                }
+            }
+            return o;
+        }
 
         // Changes whenever the geometry does (drag-cube / icon cache key).
         public string Key => builtIn.HasValue ? name : name + "#" + SectionGeometry.Format(verts).GetHashCode().ToString("x8");
