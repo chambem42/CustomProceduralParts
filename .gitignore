@@ -1,0 +1,6 @@
+.refs/
+obj/
+bin/
+*.user
+.vs/
+GameData/CustomProceduralParts/Plugins/
