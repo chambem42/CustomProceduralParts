@@ -3,6 +3,12 @@
 Extra shapes for [ProceduralParts](https://github.com/KSP-RO/ProceduralParts), shipped as a
 separate mod. Requires ProceduralParts and ModuleManager.
 
+## Install
+
+From CKAN (installs ProceduralParts and ModuleManager with it), or unzip a
+[release](https://github.com/chambem42/CustomProceduralParts/releases) into the KSP folder so you
+get `GameData/CustomProceduralParts/`. Needs ProceduralParts 2.8 or later and KSP 1.12.
+
 ## Shapes
 
 ### Spine
@@ -46,6 +52,18 @@ MSBuild Source/CustomProceduralParts.csproj -restore -p:Configuration=Release
 
 Output goes to `GameData/CustomProceduralParts/Plugins/`. Pass `-p:RefsDir=<dir>` to use a
 different reference folder.
+
+## Releasing
+
+1. Bump `<Version>` in `Source/CustomProceduralParts.csproj`, the `KSPAssembly` version in
+   `Source/AssemblyAttributes.cs`, and `VERSION` in
+   `GameData/CustomProceduralParts/CustomProceduralParts.version`.
+2. Build Release, then `powershell -File tools/package.ps1` (checks the three versions agree and
+   writes `dist/CustomProceduralParts-<version>.zip`).
+3. Push, then `gh release create v<version> dist/CustomProceduralParts-<version>.zip`.
+
+CKAN picks up new releases on its own. Its metadata is `CustomProceduralParts.netkan` in this repo
+(the NetKAN repo points at it), so dependency or tag changes go there.
 
 ## License
 

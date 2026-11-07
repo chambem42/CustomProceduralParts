@@ -1,0 +1,20 @@
+# CKAN metadata, read by the NetKAN bot through the stub in KSP-CKAN/NetKAN (NetKAN/CustomProceduralParts.netkan).
+# Versions come from the GitHub release tags, KSP compatibility from the .version file in the release zip.
+identifier: CustomProceduralParts
+name: Custom Procedural Parts
+abstract: >-
+  Extra shapes for Procedural Parts. Spine: a fuselage lofted through a chain of nodes, each with its
+  own cross-section, drawn in an in-editor section editor.
+author: chambem42
+$kref: '#/ckan/github/chambem42/CustomProceduralParts'
+$vref: '#/ckan/ksp-avc'
+license: CC-BY-SA-3.0
+tags:
+  - plugin
+  - parts
+  - editor
+depends:
+  # the Spine shape overrides ProceduralParts' internal shape members, built against 2.8
+  - name: ProceduralParts
+    min_version: v2.8.0.0
+  - name: ModuleManager
