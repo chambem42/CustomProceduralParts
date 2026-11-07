@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="CustomProceduralParts.KspTests/CustomProceduralParts.KspTests.csproj" />
+  <Project Path="CustomProceduralParts.KspTests.Run/CustomProceduralParts.KspTests.Run.csproj" />
+  <Project Path="CustomProceduralParts.Showcase/CustomProceduralParts.Showcase.csproj" />
+  <Project Path="CustomProceduralParts.Showcase.Run/CustomProceduralParts.Showcase.Run.csproj" />
+</Solution>

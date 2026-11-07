@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        Runs the in-game tests in KSP with dotnet test: every [UITest] in CustomProceduralParts.KspTests is a test here.
+        It deploys the KspTest harness and the test assembly into a KSP instance with the mods below, starts KSP on a
+        sandbox game with crafts/ in its SPH, and passes when the in-game test does.
+    -->
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <RollForward>Major</RollForward>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\CustomProceduralParts.KspTests\CustomProceduralParts.KspTests.csproj"
+                          ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" OutputItemType="KspTestPlugin" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- ProceduralParts from CKAN (and its dependencies), with the ProceduralParts build this mod is compiled
+             against over it, and this mod from source -->
+        <KspMod Include="ProceduralParts" />
+        <KspOverlay Include="$(PPGameData)" />
+        <KspMod Include="..\..\GameData\CustomProceduralParts" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <KspTestCraft Include="crafts/*.craft" />
+        <None Include="ksptest.json" Condition="Exists('ksptest.json')" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <Import Project="$(KspTestRoot)/build/KspTest.FromSource.targets" />
+
+</Project>

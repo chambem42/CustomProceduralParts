@@ -1,0 +1,13 @@
+<Project>
+  <!-- Local paths (gitignored): KspDir, KspTestRoot, PPGameData -->
+  <Import Project="Directory.Build.props.user" Condition="Exists('Directory.Build.props.user')" />
+  <PropertyGroup>
+    <!-- the KSP install the in-game tests are built against: KspDir, else the KSPDIR environment variable -->
+    <KspDir Condition="'$(KspDir)' == ''">$(KSPDIR)</KspDir>
+    <!-- a KspTest checkout: KspTestRoot, else KSPTEST_ROOT, else a sibling of this repo -->
+    <KspTestRoot Condition="'$(KspTestRoot)' == ''">$(KSPTEST_ROOT)</KspTestRoot>
+    <KspTestRoot Condition="'$(KspTestRoot)' == ''">$(MSBuildThisFileDirectory)../../KspTest</KspTestRoot>
+    <!-- the ProceduralParts build to test with (its GameData/ProceduralParts): PPGameData, else a sibling checkout -->
+    <PPGameData Condition="'$(PPGameData)' == ''">$(MSBuildThisFileDirectory)../../ProceduralParts/GameData/ProceduralParts</PPGameData>
+  </PropertyGroup>
+</Project>

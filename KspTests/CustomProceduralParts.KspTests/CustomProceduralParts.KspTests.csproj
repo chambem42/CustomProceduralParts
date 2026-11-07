@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        CustomProceduralParts' in-game tests: [UITest] methods the KspTest harness runs in a KSP session. Loaded by KSP,
+        so net48, built against the install in KspDir (see ../Directory.Build.props).
+        CustomProceduralParts.KspTests.Run runs them with dotnet test; the mod itself does not depend on this.
+    -->
+    <PropertyGroup>
+        <TargetFramework>net48</TargetFramework>
+        <LangVersion>9</LangVersion>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <RootNamespace>CustomProceduralParts.KspTests</RootNamespace>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>false</IsTestProject>
+        <!-- publicized ProceduralParts / CustomProceduralParts: the tests read shape internals directly -->
+        <NoWarn>$(NoWarn);CS8012</NoWarn>
+        <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+    </PropertyGroup>
+
+    <!-- ksptest serve-plugin's fresh name for each build: changed tests run in a Serve session without a restart -->
+    <PropertyGroup Condition="'$(ServePluginName)' != ''">
+        <AssemblyName>$(ServePluginName)</AssemblyName>
+        <OutputPath>bin/serve-plugins/$(ServePluginName)/</OutputPath>
+        <Deterministic>false</Deterministic>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Krafs.Publicizer" Version="2.2.1" PrivateAssets="all" />
+        <Publicize Include="ProceduralParts;CustomProceduralParts" />
+        <Reference Include="ProceduralParts">
+            <HintPath>$(MSBuildThisFileDirectory)../../.refs/ProceduralParts.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <ProjectReference Include="..\..\Source\CustomProceduralParts.csproj" Private="false" />
+    </ItemGroup>
+
+    <Import Project="$(KspTestRoot)/build/KspTest.FromSource.targets" />
+
+</Project>

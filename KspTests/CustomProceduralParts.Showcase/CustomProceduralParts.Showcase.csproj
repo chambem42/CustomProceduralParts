@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        Showcase videos of CustomProceduralParts recorded in KSP: [UITest] methods (Kind = "Showcase") that save every
+        rendered frame, not checks. Kept apart from the tests so a plain dotnet test of those never starts them (each
+        wants its own instance with extra mods). Run with CustomProceduralParts.Showcase.Run.
+    -->
+    <PropertyGroup>
+        <TargetFramework>net48</TargetFramework>
+        <LangVersion>9</LangVersion>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <RootNamespace>CustomProceduralParts.Showcase</RootNamespace>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>false</IsTestProject>
+        <!-- publicized ProceduralParts / CustomProceduralParts: the showcase drives the shape and its windows directly -->
+        <NoWarn>$(NoWarn);CS8012</NoWarn>
+        <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Krafs.Publicizer" Version="2.2.1" PrivateAssets="all" />
+        <Publicize Include="ProceduralParts;CustomProceduralParts" />
+        <Reference Include="ProceduralParts">
+            <HintPath>$(MSBuildThisFileDirectory)../../.refs/ProceduralParts.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <ProjectReference Include="..\..\Source\CustomProceduralParts.csproj" Private="false" />
+    </ItemGroup>
+
+    <Import Project="$(KspTestRoot)/build/KspTest.FromSource.targets" />
+
+</Project>

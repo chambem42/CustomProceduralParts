@@ -1,0 +1,85 @@
+ship = SpineTest
+version = 1.12.5
+description = One Spine part with built-in sections, saved in the pre-custom-section format (profile = ...).
+type = SPH
+size = 2.2,4,1.5
+PART
+{
+	part = proceduralStructural_4288693474
+	partName = Part
+	persistentId = 2365600061
+	pos = 0,10,0
+	attPos = 0,0,0
+	attPos0 = 0,10,0
+	rot = 0,0,0,1
+	attRot = 0,0,0,1
+	attRot0 = 0,0,0,1
+	mir = 1,1,1
+	symMethod = Radial
+	autostrutMode = Off
+	rigidAttachment = False
+	istg = 0
+	resPri = 0
+	dstg = 0
+	sidx = -1
+	sqor = -1
+	sepI = 0
+	attm = 0
+	sameVesselCollision = False
+	modCost = 0
+	modMass = 0
+	modSize = 0,0,0
+	EVENTS
+	{
+	}
+	ACTIONS
+	{
+	}
+	PARTDATA
+	{
+	}
+	MODULE
+	{
+		name = ProceduralPart
+		isEnabled = True
+		shapeName = Spine
+	}
+	MODULE
+	{
+		name = ProceduralShapeSpine
+		isEnabled = True
+		length = 4
+		hScale = 1
+		vScale = 1
+		SPINE_NODE
+		{
+			position = 0
+			sizeH = 1.5
+			sizeV = 1.5
+			profile = Ellipse
+		}
+		SPINE_NODE
+		{
+			position = 0.4
+			sizeH = 2.2
+			sizeV = 1.2
+			profile = Mk2
+			slopeAbove = Convex
+		}
+		SPINE_NODE
+		{
+			position = 0.75
+			sizeH = 1.8
+			sizeV = 1.4
+			profile = Rectangle
+			filletTop = 0.5
+		}
+		SPINE_NODE
+		{
+			position = 1
+			sizeH = 0.6
+			sizeV = 0.6
+			profile = Ellipse
+		}
+	}
+}
