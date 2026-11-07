@@ -10,14 +10,31 @@ namespace CustomProceduralParts
 {
     // One Spine cross-section. Built-ins are the parametric profiles (fillet / stretch sliders apply);
     // customs are user polygons in the unit box [-1,1]^2 (x = width, y = height), CCW, every vertex
-    // kept as a corner. Either way Outline() returns ProceduralShapeSpine.Sides points that start near
-    // +x and run CCW, so any two sections morph point-for-point along a segment.
+    // kept as a corner. Either way Outline() returns the part's points per section (n, at least the
+    // vertex cap), starting near +x and running CCW, so any two sections morph point-for-point along a
+    // segment.
     public class CrossSection
     {
         public readonly string name;
         public readonly SpineProfile? builtIn;
-        public readonly List<Vector2> verts;   // custom only
-        private Vector2[] _unit;
+        public readonly List<Vector2> verts;   // custom only; never mutated after construction
+
+        // Derived once: the geometry never changes (an edit saves a new CrossSection).
+        public readonly Vector2[] UnitOutline;   // at MinSides points; shared, don't modify
+        public readonly string Key;              // changes whenever the geometry does (drag-cube / icon cache key)
+        public readonly string ShapeHash;        // custom only: the geometry alone, for import matching
+        private readonly Dictionary<int, Vector2[]> _units = new Dictionary<int, Vector2[]>();
+        private readonly Dictionary<int, int[]> _capTris = new Dictionary<int, int[]>();
+
+        // The unit outline at n points (cached; shared, don't modify).
+        public Vector2[] Unit(int n)
+        {
+            if (n == UnitOutline.Length) return UnitOutline;
+            if (!_units.TryGetValue(n, out Vector2[] u))
+                _units[n] = u = builtIn.HasValue ? ProceduralShapeSpine.ProfileOutline(builtIn.Value, 1f, 1f, 0f, 0f, 0f, n)
+                                                 : SectionGeometry.Resample(verts, n);
+            return u;
+        }
 
         public bool IsBuiltIn => builtIn.HasValue;
 
@@ -26,25 +43,40 @@ namespace CustomProceduralParts
             this.name = name;
             this.builtIn = builtIn;
             this.verts = verts;
+            if (builtIn.HasValue)
+            {
+                UnitOutline = ProceduralShapeSpine.ProfileOutline(builtIn.Value, 1f, 1f, 0f, 0f, 0f, ProceduralShapeSpine.MinSides);
+                Key = name;
+            }
+            else
+            {
+                UnitOutline = SectionGeometry.Resample(verts, ProceduralShapeSpine.MinSides);
+                ShapeHash = SectionGeometry.Hash(verts);
+                Key = name + "#" + ShapeHash;
+            }
         }
 
         public static CrossSection BuiltIn(SpineProfile p) => new CrossSection(p.ToString(), p, null);
         public static CrossSection Custom(string name, List<Vector2> verts) => new CrossSection(name, null, new List<Vector2>(verts));
 
-        // Sides-point outline scaled to half-extents rH x rV. Fillets / stretch only affect built-ins.
-        public Vector2[] Outline(float rH, float rV, float filletTop, float filletBottom, float stretch)
+        // n-point outline scaled to half-extents rH x rV. Fillets / stretch only affect built-ins.
+        public Vector2[] Outline(float rH, float rV, float filletTop, float filletBottom, float stretch, int n)
         {
             if (builtIn.HasValue)
-                return ProceduralShapeSpine.ProfileOutline(builtIn.Value, rH, rV, filletTop, filletBottom, stretch);
-            Vector2[] u = UnitOutline;
+                return ProceduralShapeSpine.ProfileOutline(builtIn.Value, rH, rV, filletTop, filletBottom, stretch, n);
+            Vector2[] u = Unit(n);
             var o = new Vector2[u.Length];
             for (int j = 0; j < u.Length; j++) o[j] = new Vector2(u[j].x * rH, u[j].y * rV);
             return o;
         }
 
-        public Vector2[] UnitOutline => builtIn.HasValue
-            ? ProceduralShapeSpine.ProfileOutline(builtIn.Value, 1f, 1f, 0f, 0f, 0f)
-            : (_unit ??= SectionGeometry.Resample(verts, ProceduralShapeSpine.Sides));
+        // End-cap triangulation of the n-point outline (indices into it, CCW). Scaling by positive rH / rV keeps
+        // it valid, and built-ins are convex, where any triangulation fits every fillet / stretch variant.
+        public int[] CapTriangles(int n)
+        {
+            if (!_capTris.TryGetValue(n, out int[] t)) _capTris[n] = t = SectionGeometry.Triangulate(Unit(n));
+            return t;
+        }
 
         // Starting vertices for the editor: a custom's own polygon, or a built-in's default outline minus
         // the filler points along its straight runs (a Rectangle opens as its 4 corners, leaving room to
@@ -64,9 +96,6 @@ namespace CustomProceduralParts
             }
             return o;
         }
-
-        // Changes whenever the geometry does (drag-cube / icon cache key).
-        public string Key => builtIn.HasValue ? name : name + "#" + SectionGeometry.Format(verts).GetHashCode().ToString("x8");
 
         public ConfigNode ToNode()
         {
@@ -100,6 +129,11 @@ namespace CustomProceduralParts
         private const string ModTag = "[CrossSectionLibrary]";
 
         private static List<CrossSection> _sections;
+        private static readonly Dictionary<string, CrossSection> _byName = new Dictionary<string, CrossSection>();
+        // Earlier shapes of each custom section (ShapeHash), so a craft saved before an edit maps back to the
+        // section instead of forking a copy. Persisted as "prev" values.
+        private static readonly Dictionary<string, List<string>> _history = new Dictionary<string, List<string>>();
+        private const int MaxHistory = 32;
 
         // Fired with the section name after a custom section is added, changed or deleted.
         public static event Action<string> Changed;
@@ -111,7 +145,17 @@ namespace CustomProceduralParts
 
         public static string[] Names => All.Select(s => s.name).ToArray();
 
-        public static CrossSection Get(string name) => All.FirstOrDefault(s => s.name == name);
+        public static CrossSection Get(string name)
+        {
+            EnsureLoaded();
+            return name != null && _byName.TryGetValue(name, out CrossSection cs) ? cs : null;
+        }
+
+        public static int IndexOf(string name)
+        {
+            EnsureLoaded();
+            return _sections.FindIndex(s => s.name == name);
+        }
 
         // Unknown names (a deleted section, a typo) render as Ellipse; the node keeps its name.
         public static CrossSection Resolve(string name) => Get(name) ?? Get(nameof(SpineProfile.Ellipse));
@@ -142,7 +186,10 @@ namespace CustomProceduralParts
                     {
                         CrossSection cs = CrossSection.FromNode(n);
                         if (cs == null) { Debug.LogWarning($"{ModTag} skipping invalid section \"{n.GetValue("name")}\" in {FilePath}"); continue; }
-                        if (Get(cs.name) == null) _sections.Add(cs);
+                        if (_sections.Exists(s => s.name == cs.name)) continue;
+                        _sections.Add(cs);
+                        string[] prev = n.GetValues("prev");
+                        if (prev.Length > 0) _history[cs.name] = prev.Skip(Math.Max(0, prev.Length - MaxHistory)).ToList();
                     }
                 }
             }
@@ -156,6 +203,8 @@ namespace CustomProceduralParts
             List<CrossSection> customs = _sections.Skip(nb).OrderBy(s => s.name, StringComparer.OrdinalIgnoreCase).ToList();
             _sections.RemoveRange(nb, _sections.Count - nb);
             _sections.AddRange(customs);
+            _byName.Clear();
+            foreach (CrossSection cs in _sections) _byName[cs.name] = cs;
         }
 
         private static void Persist()
@@ -163,7 +212,13 @@ namespace CustomProceduralParts
             try
             {
                 var root = new ConfigNode();
-                foreach (CrossSection cs in _sections.Where(s => !s.IsBuiltIn)) root.AddNode(cs.ToNode());
+                foreach (CrossSection cs in _sections.Where(s => !s.IsBuiltIn))
+                {
+                    ConfigNode n = cs.ToNode();
+                    if (_history.TryGetValue(cs.name, out List<string> prev))
+                        foreach (string h in prev) n.AddValue("prev", h);
+                    root.AddNode(n);
+                }
                 Directory.CreateDirectory(Path.GetDirectoryName(FilePath));
                 root.Save(FilePath);
             }
@@ -177,8 +232,25 @@ namespace CustomProceduralParts
             EnsureLoaded();
             int i = _sections.FindIndex(s => s.name == name);
             if (i >= 0 && _sections[i].IsBuiltIn) throw new InvalidOperationException("can't overwrite built-in " + name);
-            if (i >= 0) _sections[i] = CrossSection.Custom(name, verts);
-            else _sections.Add(CrossSection.Custom(name, verts));
+            var cs = CrossSection.Custom(name, verts);
+            if (i >= 0)
+            {
+                string old = _sections[i].ShapeHash;
+                if (old != cs.ShapeHash)
+                {
+                    if (!_history.TryGetValue(name, out List<string> prev)) _history[name] = prev = new List<string>();
+                    prev.Remove(old);
+                    prev.Add(old);
+                    if (prev.Count > MaxHistory) prev.RemoveAt(0);
+                    prev.Remove(cs.ShapeHash);   // back to an earlier shape: it's current again
+                }
+                _sections[i] = cs;
+            }
+            else
+            {
+                _history.Remove(name);   // a new section under a deleted one's name starts fresh
+                _sections.Add(cs);
+            }
             SortCustoms();
             Persist();
             Changed?.Invoke(name);
@@ -188,26 +260,28 @@ namespace CustomProceduralParts
         {
             EnsureLoaded();
             if (_sections.RemoveAll(s => !s.IsBuiltIn && s.name == name) == 0) return;
+            _history.Remove(name);
+            SortCustoms();
             Persist();
             Changed?.Invoke(name);
         }
 
-        // A section embedded in a craft: returns the library name it ended up under. Same name + same
-        // shape -> that one; else any custom with the same shape; else the name if free; else "name (N)",
-        // so a downloaded craft never overwrites (or is overwritten by) a different local section.
-        public static string Import(CrossSection cs)
+        // True if the section `name` is this shape now, or was before a later edit.
+        private static bool IsVersionOf(string name, string shapeHash)
+        {
+            CrossSection cur = Get(name);
+            if (cur == null || cur.IsBuiltIn) return false;
+            return cur.ShapeHash == shapeHash || (_history.TryGetValue(name, out List<string> prev) && prev.Contains(shapeHash));
+        }
+
+        // A section embedded in a craft loaded into the editor, against the shared list: the shared section of
+        // its name if the craft's copy is that section now or was before a later edit (a craft saved before
+        // an edit follows it), else null and the craft keeps its own copy. Loading a craft never adds to the
+        // shared list; the section dialog's Save As does, on request.
+        public static CrossSection SharedVersionOf(CrossSection cs)
         {
             EnsureLoaded();
-            string shape = SectionGeometry.Format(cs.verts);
-            CrossSection same = Get(cs.name);
-            if (same != null && !same.IsBuiltIn && SectionGeometry.Format(same.verts) == shape) return same.name;
-            CrossSection twin = _sections.FirstOrDefault(s => !s.IsBuiltIn && SectionGeometry.Format(s.verts) == shape);
-            if (twin != null) return twin.name;
-            string name = cs.name;
-            for (int k = 2; Get(name) != null; k++) name = $"{cs.name} ({k})";
-            Debug.Log($"{ModTag} importing section \"{cs.name}\" from a craft as \"{name}\"");
-            Save(name, cs.verts);
-            return name;
+            return IsVersionOf(cs.name, cs.ShapeHash) ? Get(cs.name) : null;
         }
     }
 
@@ -229,7 +303,16 @@ namespace CustomProceduralParts
             return true;
         }
 
-        private static float SignedArea(IList<Vector2> p)
+        // Stable across runs (string.GetHashCode isn't guaranteed to be): FNV-1a of the formatted vertices.
+        public static string Hash(IEnumerable<Vector2> vs)
+        {
+            uint h = 2166136261;
+            foreach (char ch in Format(vs)) { h ^= ch; h *= 16777619; }
+            return h.ToString("x8");
+        }
+
+        // Shoelace area, positive for CCW.
+        public static float SignedArea(IList<Vector2> p)
         {
             float a = 0f;
             for (int i = 0; i < p.Count; i++)
@@ -245,7 +328,7 @@ namespace CustomProceduralParts
         {
             int n = p.Count;
             if (n < 3) return "Needs at least 3 vertices.";
-            if (n > ProceduralShapeSpine.Sides) return $"At most {ProceduralShapeSpine.Sides} vertices.";
+            if (n > ProceduralShapeSpine.MaxSectionVerts) return $"At most {ProceduralShapeSpine.MaxSectionVerts} vertices.";
             for (int i = 0; i < n; i++)
                 if ((p[(i + 1) % n] - p[i]).sqrMagnitude < 1e-8f) return "Two neighbouring vertices are on top of each other.";
             for (int i = 0; i < n; i++)
@@ -263,7 +346,7 @@ namespace CustomProceduralParts
 
         private static float Cross(Vector2 a, Vector2 b) => a.x * b.y - a.y * b.x;
 
-        private static bool SegmentsCross(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
+        internal static bool SegmentsCross(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
         {
             float d1 = Cross(b - a, c - a), d2 = Cross(b - a, d - a), d3 = Cross(d - c, a - c), d4 = Cross(d - c, b - c);
             if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
@@ -290,25 +373,65 @@ namespace CustomProceduralParts
             return o;
         }
 
-        // N points by arc length with every vertex kept, rotated to start at the point nearest +x
-        // (where the built-ins start) so morphs line up.
+        // N points by arc length with every vertex kept, rotated to start at the rightmost point (the
+        // one nearest mid-height among ties), where the built-ins start, so morphs line up. A section with
+        // a vertical +x side always starts on that side, so a family of them (cut from one model) morphs
+        // point for point whatever their tops and bottoms do.
         public static Vector2[] Resample(IList<Vector2> verts, int N)
         {
+            if (verts.Count > N) verts = Simplify(verts, N);
             Vector2[] r = ProceduralShapeSpine.ResampleWithCorners(verts, Enumerable.Range(0, verts.Count).ToList(), N);
             int start = 0;
-            float best = float.MaxValue;
-            for (int i = 0; i < r.Length; i++)
+            for (int i = 1; i < r.Length; i++)
             {
-                float a = Mathf.Abs(Mathf.Atan2(r[i].y, r[i].x));
-                if (a < best - 1e-5f) { best = a; start = i; }
+                Vector2 p = r[i], b = r[start];
+                if (p.x > b.x + 1e-5f || (p.x >= b.x - 1e-5f && Mathf.Abs(p.y) < Mathf.Abs(b.y) - 1e-5f)) start = i;
             }
             var o = new Vector2[N];
             for (int i = 0; i < N; i++) o[i] = r[(start + i) % N];
+            // A fill point that lands exactly on a vertex duplicates it: move the second copy halfway to the
+            // next point, which is still on the same edge (every vertex is a resample target).
+            for (int i = 0; i < N; i++)
+                if (Same(o[i], o[(i + 1) % N])) o[(i + 1) % N] = 0.5f * (o[(i + 1) % N] + o[(i + 2) % N]);
             return o;
         }
 
-        // Ear-clipping triangulation of a simple CCW polygon: (n-2) triangles, each CCW. A degenerate
-        // remainder (collapsed ring, all-collinear leftovers) is closed as a fan so the count holds.
+        // A section with more vertices than a part's points per section, cut down to n for that part: the vertex
+        // whose triangle with its neighbours is smallest goes first (the one that changes the outline least), one
+        // at a time. The start vertex (the rightmost, see Resample) stays, so the morph keeps its alignment.
+        public static List<Vector2> Simplify(IList<Vector2> verts, int n)
+        {
+            var v = new List<Vector2>(verts);
+            int keep = 0;
+            for (int i = 1; i < v.Count; i++)
+            {
+                Vector2 p = v[i], b = v[keep];
+                if (p.x > b.x + 1e-5f || (p.x >= b.x - 1e-5f && Mathf.Abs(p.y) < Mathf.Abs(b.y) - 1e-5f)) keep = i;
+            }
+            Vector2 start = v[keep];
+            while (v.Count > Mathf.Max(3, n))
+            {
+                int drop = -1;
+                float least = float.MaxValue;
+                for (int i = 0; i < v.Count; i++)
+                {
+                    if (v[i] == start) continue;
+                    Vector2 a = v[(i + v.Count - 1) % v.Count], b = v[i], c = v[(i + 1) % v.Count];
+                    float area = Mathf.Abs(Cross(b - a, c - a));
+                    if (area < least) { least = area; drop = i; }
+                }
+                if (drop < 0) break;
+                v.RemoveAt(drop);
+            }
+            return v;
+        }
+
+        private static bool Same(Vector2 a, Vector2 b) => (a - b).sqrMagnitude <= 1e-12f;
+
+        // Ear-clipping triangulation of a simple CCW polygon: (n-2) triangles, each CCW. Duplicate points and
+        // points along a straight run are clipped first as zero-area triangles, and a point coincident with a
+        // candidate's corner doesn't count as inside it, so neither stalls the clipper. A degenerate remainder
+        // (collapsed ring) is closed as a fan so the count holds.
         public static int[] Triangulate(IList<Vector2> p)
         {
             int n = p.Count;
@@ -323,14 +446,21 @@ namespace CustomProceduralParts
                 {
                     int ia = idx[(k + idx.Count - 1) % idx.Count], ib = idx[k], ic = idx[(k + 1) % idx.Count];
                     Vector2 a = p[ia], b = p[ib], c = p[ic];
-                    if (Cross(b - a, c - b) <= 1e-9f) continue;   // reflex or collinear: not an ear
-                    bool inside = false;
-                    foreach (int m in idx)
+                    Vector2 ab = b - a, bc = c - b;
+                    float cr = Cross(ab, bc);
+                    bool degenerate = Same(a, b) || Same(b, c)
+                                      || (Mathf.Abs(cr) <= 1e-6f * ab.magnitude * bc.magnitude && Vector2.Dot(ab, bc) > 0f);
+                    if (!degenerate)
                     {
-                        if (m == ia || m == ib || m == ic) continue;
-                        if (InTriangle(p[m], a, b, c)) { inside = true; break; }
+                        if (cr <= 0f) continue;   // reflex, or a spike doubling back: not an ear
+                        bool inside = false;
+                        foreach (int m in idx)
+                        {
+                            if (m == ia || m == ib || m == ic || Same(p[m], a) || Same(p[m], b) || Same(p[m], c)) continue;
+                            if (InTriangle(p[m], a, b, c)) { inside = true; break; }
+                        }
+                        if (inside) continue;
                     }
-                    if (inside) continue;
                     tris.Add(ia); tris.Add(ib); tris.Add(ic);
                     idx.RemoveAt(k);
                     clipped = true;

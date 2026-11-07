@@ -2,6 +2,7 @@ using KSPAPIExtensions;
 using ProceduralParts;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using UnityEngine;
 using UnityEngine.Profiling;
@@ -46,21 +47,24 @@ namespace CustomProceduralParts
             if (!node.HasValue("section") && node.HasValue("profile")) section = node.GetValue("profile");
         }
         public void Save(ConfigNode node) => ConfigNode.CreateConfigFromObject(this, node);
-        public CrossSection Section => CrossSectionLibrary.Resolve(section);
-        public bool IsBuiltIn(SpineProfile p) => Section.builtIn == p;
+        // Outside the editor a node keeps the custom section its craft embedded, so a later library edit
+        // (or a missing section) never reshapes a vessel already built. In the editor the library rules.
+        internal CrossSection pinned;
+        public CrossSection Section => pinned ?? CrossSectionLibrary.Resolve(section);
         public SpineNode Clone() => new SpineNode
         {
             position = position, sizeH = sizeH, sizeV = sizeV, offsetV = offsetV, offsetH = offsetH,
             tiltV = tiltV, tiltH = tiltH, filletTop = filletTop, filletBottom = filletBottom,
             stretch = stretch,
-            section = section, slopeAbove = slopeAbove,
+            section = section, slopeAbove = slopeAbove, pinned = pinned,
         };
     }
 
     public class ProceduralShapeSpine : ProceduralAbstractShape
     {
         private new const string ModTag = "[ProceduralShapeSpine]";
-        internal const int Sides = 24;         // points per ring outline (also the custom-section vertex cap)
+        internal const int MinSides = 24;          // points per ring by default, and the fewest (icons use it too)
+        internal const int MaxSectionVerts = 96;   // a custom section's vertex cap (a part with fewer points per section simplifies it)
         private const int ColliderSides = 12;  // coarser collider
 
         public override void InitializeAttachmentNodes() => InitializeAttachmentNodes(length, EndDiameter(0));
@@ -104,15 +108,28 @@ namespace CustomProceduralParts
         private const float ShellInsetFraction = 0.49f;
         private const float MinShellThickness = 0.005f;
 
-        // Gizmo behaviour prefs (editor-only). handleVisOpt picks which nodes show their edge tips:
-        // All / Active (selected node only) / None. Node selectors + section glyphs always show.
-        [KSPField(isPersistant = true, guiActiveEditor = true, guiName = "Show Handles", groupName = ProceduralPart.PAWGroupName),
-            UI_ChooseOption(scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.None)]
-        public string handleVisOpt = nameof(SpineHandleVis.Active);
+        // Points around each section of this part (the loft's ring outlines): more for smoother curves. At least
+        // the custom-section vertex cap, so every vertex of every section is kept. Set in the Spine Options window.
+        [KSPField(isPersistant = true)]
+        public int sectionPoints = MinSides;
+        internal static readonly int[] PointChoices = { 24, 32, 48, 64, 96 };
+        internal int Sides => Mathf.Clamp(sectionPoints, MinSides, PointChoices[PointChoices.Length - 1]);
 
-        [KSPField(isPersistant = true, guiActiveEditor = true, guiName = "Must select node before dragging", groupName = ProceduralPart.PAWGroupName),
-            UI_Toggle(scene = UI_Scene.Editor, enabledText = "On", disabledText = "Off", affectSymCounterparts = UI_Scene.None)]
-        public bool requireSelectToDrag = true;
+        // The display and handling options (handles shown, click before drag, outlines) are SpineSettings,
+        // the same for every Spine; this part's own is sectionPoints.
+        [KSPEvent(guiActiveEditor = true, guiName = "Spine Options", groupName = ProceduralPart.PAWGroupName)]
+        public void SpineOptionsEvent() => SpineOptionsWindow.Open(this);
+
+        // This part's points per section, on it and its symmetry counterparts, re-lofted.
+        internal void SetSectionPoints(int points)
+        {
+            points = Mathf.Clamp(points, MinSides, PointChoices[PointChoices.Length - 1]);
+            if (points == sectionPoints) return;
+            sectionPoints = points;
+            foreach (Part p in part.symmetryCounterparts)
+                if (FindAbstractShapeModule(p, this) is ProceduralShapeSpine m) m.sectionPoints = points;
+            RebuildAndPropagate();
+        }
 
         [KSPField] public string TopNodeName = "top";
         [KSPField] public string BottomNodeName = "bottom";
@@ -212,6 +229,7 @@ namespace CustomProceduralParts
             selectedNode = nodes.IndexOf(add);
             RefreshSelector();
             LoadProxyFromNode();
+            FollowSelected();
             RebuildAndPropagate();
             MonoUtilities.RefreshPartContextWindow(part);
         }
@@ -229,14 +247,95 @@ namespace CustomProceduralParts
             ClampNodeSizes();   // dropping to two nodes can leave both ends closed -> reopen one
             RefreshSelector();
             LoadProxyFromNode();
+            FollowSelected();
             RebuildAndPropagate();
             MonoUtilities.RefreshPartContextWindow(part);
         }
 
         [KSPEvent(guiActiveEditor = true, guiName = "Edit Cross Sections", groupName = ProceduralPart.PAWGroupName)]
-        public void EditCrossSectionsEvent() => CrossSectionEditor.Open(nodes.Count > 0 ? nodes[SelIndex].section : null);
+        public void EditCrossSectionsEvent()
+        {
+            if (nodes.Count == 0) CrossSectionEditor.Open(CrossSectionLibrary.Resolve(null), false);
+            else CrossSectionEditor.Open(nodes[SelIndex].Section, nodes[SelIndex].pinned != null);
+        }
 
         private int SelIndex => Mathf.Clamp((int)selectedNode, 0, Mathf.Max(0, nodes.Count - 1));
+
+        // The section dialog, if open and unedited, shows the selected node's section.
+        private void FollowSelected()
+        {
+            if (nodes.Count > 0) CrossSectionEditor.FollowNode(nodes[SelIndex].Section, nodes[SelIndex].pinned != null);
+        }
+
+        // The editor's Spines: the ship's, and the part being carried (not on the ship yet) with its children.
+        internal static List<ProceduralShapeSpine> EditorSpines()
+        {
+            var parts = new List<Part>();
+            if (EditorLogic.fetch != null && EditorLogic.fetch.ship != null) parts.AddRange(EditorLogic.fetch.ship.parts);
+            Part held = EditorLogic.SelectedPart;
+            if (held != null && !parts.Contains(held))
+            {
+                parts.Add(held);
+                parts.AddRange(held.FindChildParts<Part>(true).Where(p => !parts.Contains(p)));
+            }
+            var o = new List<ProceduralShapeSpine>();
+            foreach (Part p in parts) o.AddRange(p.FindModulesImplementing<ProceduralShapeSpine>());
+            return o;
+        }
+
+        // The custom sections the craft in the editor carries itself (its nodes' own copies, not in the shared
+        // list), one per name, A-Z. `also`: a Spine to count in whether or not it's on the ship.
+        internal static List<CrossSection> CraftSections(ProceduralShapeSpine also = null)
+        {
+            var byName = new Dictionary<string, CrossSection>();
+            var spines = EditorSpines();
+            if (also != null && !spines.Contains(also)) spines.Insert(0, also);
+            foreach (ProceduralShapeSpine m in spines)
+                foreach (SpineNode n in m.nodes)
+                    if (n.pinned != null && !byName.ContainsKey(n.pinned.name)) byName[n.pinned.name] = n.pinned;
+            return byName.Values.OrderBy(s => s.name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        // What a node can pick: the built-ins, the craft's own sections, then the shared ones (a craft section
+        // hides a shared one of its name: within the craft, its own wins).
+        private List<CrossSection> AvailableSections()
+        {
+            List<CrossSection> craft = CraftSections(this);
+            var names = new HashSet<string>(craft.Select(s => s.name));
+            IList<CrossSection> lib = CrossSectionLibrary.All;
+            var o = lib.Where(s => s.IsBuiltIn).ToList();
+            o.AddRange(craft);
+            o.AddRange(lib.Where(s => !s.IsBuiltIn && !names.Contains(s.name)));
+            return o;
+        }
+
+        private static void AssignSection(SpineNode n, CrossSection cs)
+        {
+            n.section = cs.name;
+            n.pinned = cs.IsBuiltIn || CrossSectionLibrary.Get(cs.name) == cs ? null : cs;
+        }
+
+        private void RefreshSectionOptions()
+        {
+            if (Fields[nameof(nodeProfileOpt)].uiControlEditor is UI_ChooseOption opt)
+                opt.options = AvailableSections().Select(s => s.name).ToArray();
+        }
+
+        // The craft's own section `name` replaced by `with` on every node that has it, or with null dropped so
+        // they use the shared section of that name.
+        internal void ReplaceCraftSection(string name, CrossSection with)
+        {
+            bool changed = false;
+            foreach (SpineNode n in nodes)
+                if (n.pinned != null && n.pinned.name == name) { n.pinned = with; changed = true; }
+            if (!changed) return;
+            DropCustomIcon(name);
+            UpdateShape();
+            UpdateInterops();
+            RefreshSectionOptions();
+            LoadProxyFromNode();
+            if (part.PartActionWindow != null) MonoUtilities.RefreshPartContextWindow(part);
+        }
 
         // The first/last nodes are the spine ends -- pinned fore/aft, can't be repositioned along the axis.
         private bool IsEndNode(int i) => i == 0 || i == nodes.Count - 1;
@@ -264,15 +363,17 @@ namespace CustomProceduralParts
         public override void OnLoad(ConfigNode node)
         {
             base.OnLoad(node);
-            // Custom sections travel with the craft. Import them; one that clashes with a different
-            // local section of the same name comes in renamed, so remap the nodes that use it.
-            var renamed = new Dictionary<string, string>();
+            // Custom sections travel with the craft, and its nodes keep the embedded geometry (pinned): loading
+            // a craft leaves the shared list alone. In the editor, one that is a shared section as it is now or
+            // was before an edit uses the shared one instead, so the craft follows the edit.
+            bool editor = HighLogic.LoadedSceneIsEditor;
+            var embedded = new Dictionary<string, CrossSection>();
             foreach (ConfigNode c in node.GetNodes(CrossSectionLibrary.NodeName))
             {
                 CrossSection cs = CrossSection.FromNode(c);
                 if (cs == null) { Debug.LogWarning($"{ModTag} {part?.name}: ignoring invalid embedded cross-section \"{c.GetValue("name")}\""); continue; }
-                string got = CrossSectionLibrary.Import(cs);
-                if (got != cs.name) renamed[cs.name] = got;
+                if (editor && CrossSectionLibrary.SharedVersionOf(cs) != null) continue;
+                embedded[cs.name] = cs;
             }
             ConfigNode[] cfgs = node.GetNodes("SPINE_NODE");
             if (cfgs != null && cfgs.Length > 0)
@@ -282,7 +383,7 @@ namespace CustomProceduralParts
                 {
                     SpineNode n = new SpineNode();
                     n.Load(c);
-                    if (renamed.TryGetValue(n.section, out string to)) n.section = to;
+                    if (embedded.TryGetValue(n.section, out CrossSection pin)) n.pinned = pin;
                     nodes.Add(n);
                 }
                 SortNodes();
@@ -297,8 +398,8 @@ namespace CustomProceduralParts
             var embedded = new HashSet<string>();
             foreach (SpineNode n in nodes)
             {
-                CrossSection cs = CrossSectionLibrary.Get(n.section);
-                if (cs != null && !cs.IsBuiltIn && embedded.Add(cs.name)) node.AddNode(cs.ToNode());
+                CrossSection cs = n.Section;   // a missing section resolves to the built-in Ellipse: nothing to embed
+                if (!cs.IsBuiltIn && embedded.Add(cs.name)) node.AddNode(cs.ToNode());
             }
         }
 
@@ -360,11 +461,9 @@ namespace CustomProceduralParts
                 slopeOpt.options = Enum.GetNames(typeof(SpineSlope));
                 slopeOpt.onFieldChanged = OnNodeFieldChanged;
                 UI_ChooseOption profOpt = Fields[nameof(nodeProfileOpt)].uiControlEditor as UI_ChooseOption;
-                profOpt.options = CrossSectionLibrary.Names;
+                profOpt.options = AvailableSections().Select(s => s.name).ToArray();
                 profOpt.onFieldChanged = OnNodeFieldChanged;
                 if (!_subscribed) { CrossSectionLibrary.Changed += OnSectionLibraryChanged; _subscribed = true; }
-                UI_ChooseOption handleOpt = Fields[nameof(handleVisOpt)].uiControlEditor as UI_ChooseOption;
-                handleOpt.options = Enum.GetNames(typeof(SpineHandleVis));
                 Fields[nameof(nodeWidth)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
                 Fields[nameof(nodeHeight)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
                 Fields[nameof(nodeTiltV)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
@@ -393,9 +492,9 @@ namespace CustomProceduralParts
         private void OnSectionLibraryChanged(string name)
         {
             if (this == null || part == null) return;
-            if (Fields[nameof(nodeProfileOpt)].uiControlEditor is UI_ChooseOption opt) opt.options = CrossSectionLibrary.Names;
-            _customIcons.Remove(name);
-            if (PPart != null && PPart.CurrentShape == this && nodes.Exists(n => n.section == name))
+            RefreshSectionOptions();
+            DropCustomIcon(name);
+            if (PPart != null && PPart.CurrentShape == this && nodes.Exists(n => n.section == name && n.pinned == null))
             {
                 UpdateShape();
                 UpdateInterops();
@@ -456,6 +555,7 @@ namespace CustomProceduralParts
             {
             EnsureNodes();
             SortNodes();
+            _shapeVersion++;   // the outlines redraw
             part.CoMOffset = CoMOffset;
             if (HighLogic.LoadedSceneIsEditor && shellMode) UpdateShellThicknessRange();
 
@@ -522,13 +622,13 @@ namespace CustomProceduralParts
         // top/bottom fillet fractions also blended (a..b) for the rounded-rect profiles.
         private static Vector2[] RingOutline(CrossSection pa, CrossSection pb, float blend,
                                              float rH, float rV, float ftA, float fbA, float ftB, float fbB,
-                                             float sA, float sB)
+                                             float sA, float sB, int n)
         {
-            Vector2[] a = pa.Outline(rH, rV, ftA, fbA, sA);
+            Vector2[] a = pa.Outline(rH, rV, ftA, fbA, sA, n);
             if (blend <= 0f || (pa == pb && ftA == ftB && fbA == fbB && sA == sB)) return a;
-            Vector2[] b = pb.Outline(rH, rV, ftB, fbB, sB);
-            var o = new Vector2[Sides];
-            for (int j = 0; j < Sides; j++) o[j] = Vector2.Lerp(a[j], b[j], blend);
+            Vector2[] b = pb.Outline(rH, rV, ftB, fbB, sB, n);
+            var o = new Vector2[n];
+            for (int j = 0; j < n; j++) o[j] = Vector2.Lerp(a[j], b[j], blend);
             return o;
         }
 
@@ -537,22 +637,22 @@ namespace CustomProceduralParts
         // of the same profile loft with aligned edges. Rectangle and Mk3 are rounded rectangles whose
         // corner radii come from the top/bottom fillet fractions (0 = sharp corner).
         internal static Vector2[] ProfileOutline(SpineProfile profile, float rH, float rV, float ftFrac, float fbFrac,
-                                                 float stretch)
+                                                 float stretch, int n)
         {
             switch (profile)
             {
-                case SpineProfile.Rectangle: return BuildRoundedRect(rH, rV, ftFrac, fbFrac);
-                case SpineProfile.Mk3: return BuildMk3Outline(rH, rV);
+                case SpineProfile.Rectangle: return BuildRoundedRect(rH, rV, ftFrac, fbFrac, n);
+                case SpineProfile.Mk3: return BuildMk3Outline(rH, rV, n);
                 case SpineProfile.Mk2: break;
                 default: // Ellipse: flatten toward a rectangle (superellipse) if the stretch slider is non-zero.
-                    if (stretch > 0f) return BuildStretchedEllipse(rH, rV, stretch);
+                    if (stretch > 0f) return BuildStretchedEllipse(rH, rV, stretch, n);
                     break;
             }
 
-            Vector2[] unit = (profile == SpineProfile.Mk2) ? UnitMk2 : UnitCircle;   // Mk2 / plain Ellipse
+            Vector2[] unit = (profile == SpineProfile.Mk2) ? UnitMk2(n) : UnitCircle(n);   // Mk2 / plain Ellipse
             Vector2 scale = new Vector2(rH, rV);
-            var o = new Vector2[Sides];
-            for (int j = 0; j < Sides; j++) o[j] = Vector2.Scale(unit[j], scale);
+            var o = new Vector2[n];
+            for (int j = 0; j < n; j++) o[j] = Vector2.Scale(unit[j], scale);
             return o;
         }
 
@@ -561,16 +661,16 @@ namespace CustomProceduralParts
         // neighbours). Exponent e: 1 = true ellipse, ->0 flattens a face into a flat wall. The flattening is
         // applied to the LONGER axis's end faces (left/right when wider, top/bottom when taller) -- for a
         // circle the two are congruent, so one slider covers both; the shorter axis stays elliptical.
-        private static Vector2[] BuildStretchedEllipse(float rH, float rV, float stretch)
+        private static Vector2[] BuildStretchedEllipse(float rH, float rV, float stretch, int n)
         {
             float e = SquarenessToExp(stretch);
             bool wide = rH >= rV;
             float eH = wide ? e : 1f;   // wide  -> flatten the left/right sides (x-faces)
             float eV = wide ? 1f : e;   // tall  -> flatten the top/bottom (y-faces)
-            var o = new Vector2[Sides];
-            for (int j = 0; j < Sides; j++)
+            var o = new Vector2[n];
+            for (int j = 0; j < n; j++)
             {
-                float a = 2f * Mathf.PI * j / Sides;
+                float a = 2f * Mathf.PI * j / n;
                 float c = Mathf.Cos(a), s = Mathf.Sin(a);
                 o[j] = new Vector2(Mathf.Sign(c) * Mathf.Pow(Mathf.Abs(c), eH) * rH,
                                    Mathf.Sign(s) * Mathf.Pow(Mathf.Abs(s), eV) * rV);
@@ -584,7 +684,7 @@ namespace CustomProceduralParts
         // Rounded rectangle: half-extents (rH, rV), independent top/bottom corner radii from the fillet
         // fractions (of the smaller half-extent). Tangent points are forced so the flats stay flat; the
         // fillet arcs are sampled smoothly. Fillet 0 -> a forced sharp corner.
-        private static Vector2[] BuildRoundedRect(float rH, float rV, float ftFrac, float fbFrac)
+        private static Vector2[] BuildRoundedRect(float rH, float rV, float ftFrac, float fbFrac, int n)
         {
             float m = Mathf.Min(rH, rV);
             float tr = Mathf.Clamp01(ftFrac) * m;
@@ -596,7 +696,7 @@ namespace CustomProceduralParts
             AddFillet(pts, corners, new Vector2(-(rH - tr), rV - tr), tr, 90f, 180f, new Vector2(-rH, rV)); // top-left
             AddFillet(pts, corners, new Vector2(-(rH - br), -(rV - br)), br, 180f, 270f, new Vector2(-rH, -rV)); // bottom-left
             AddFillet(pts, corners, new Vector2(rH - br, -(rV - br)), br, 270f, 360f, new Vector2(rH, -rV));     // bottom-right
-            return ResampleWithCorners(pts, corners, Sides);
+            return ResampleWithCorners(pts, corners, n);
         }
 
         // Append one corner: a quarter arc of `radius` about `center` (left smooth so arc-length sampling
@@ -616,13 +716,13 @@ namespace CustomProceduralParts
         // Mk3: a vertical circle (radius = rV) with its left/right sides sliced off flat at x = +/-rH, so
         // the top/bottom are arcs and the sides are flats (the real Mk3 is a 3.75 m circle cut to 3.25 m
         // wide). The 4 flat/arc junctions are forced sharp. If rH >= rV there's no truncation -> ellipse.
-        private static Vector2[] BuildMk3Outline(float rH, float rV)
+        private static Vector2[] BuildMk3Outline(float rH, float rV, int n)
         {
             float R = rV;
             if (rH >= R)
             {
-                var e = new Vector2[Sides];
-                for (int j = 0; j < Sides; j++) { float a = 2f * Mathf.PI * j / Sides; e[j] = new Vector2(Mathf.Cos(a) * rH, Mathf.Sin(a) * rV); }
+                var e = new Vector2[n];
+                for (int j = 0; j < n; j++) { float a = 2f * Mathf.PI * j / n; e[j] = new Vector2(Mathf.Cos(a) * rH, Mathf.Sin(a) * rV); }
                 return e;
             }
             float yc = Mathf.Sqrt(Mathf.Max(0f, R * R - rH * rH));   // flat/arc junction height
@@ -636,33 +736,24 @@ namespace CustomProceduralParts
             corners.Add(pts.Count); pts.Add(new Vector2(-rH, yc));   // left flat, top
             corners.Add(pts.Count); pts.Add(new Vector2(-rH, -yc));  // left flat, bottom
             for (int i = 1; i < arc; i++) { float a = Mathf.Lerp(Mathf.PI + tc, 2f * Mathf.PI - tc, (float)i / arc); pts.Add(new Vector2(Mathf.Cos(a) * R, Mathf.Sin(a) * R)); }  // bottom arc
-            return ResampleWithCorners(pts, corners, Sides);
+            return ResampleWithCorners(pts, corners, n);
         }
 
-        // Unit outlines in the [-1,1] box, Sides points each, starting near +x going CCW.
-        private static Vector2[] _unitCircle, _unitRect, _unitMk2;
-        private static Vector2[] UnitCircle
+        // Unit outlines in the [-1,1] box, n points each, starting near +x going CCW (cached per n).
+        private static readonly Dictionary<int, Vector2[]> _unitCircle = new Dictionary<int, Vector2[]>(), _unitMk2 = new Dictionary<int, Vector2[]>();
+        private static Vector2[] UnitCircle(int n)
         {
-            get
+            if (!_unitCircle.TryGetValue(n, out Vector2[] u))
             {
-                if (_unitCircle == null)
-                {
-                    _unitCircle = new Vector2[Sides];
-                    for (int j = 0; j < Sides; j++) { float a = 2f * Mathf.PI * j / Sides; _unitCircle[j] = new Vector2(Mathf.Cos(a), Mathf.Sin(a)); }
-                }
-                return _unitCircle;
+                _unitCircle[n] = u = new Vector2[n];
+                for (int j = 0; j < n; j++) { float a = 2f * Mathf.PI * j / n; u[j] = new Vector2(Mathf.Cos(a), Mathf.Sin(a)); }
             }
+            return u;
         }
-        private static Vector2[] UnitRect => _unitRect ??= ResampleWithCorners(
-            new List<Vector2> { new Vector2(1f, -1f), new Vector2(1f, 1f), new Vector2(-1f, 1f), new Vector2(-1f, -1f) },
-            new List<int> { 0, 1, 2, 3 }, Sides);
-        private static Vector2[] UnitMk2
+        private static Vector2[] UnitMk2(int n)
         {
-            get
-            {
-                if (_unitMk2 == null) { Vector2[] poly = BuildMk2Unit(out List<int> corners); _unitMk2 = ResampleWithCorners(new List<Vector2>(poly), corners, Sides); }
-                return _unitMk2;
-            }
+            if (!_unitMk2.TryGetValue(n, out Vector2[] u)) _unitMk2[n] = u = BuildMk2Unit(n);
+            return u;
         }
 
         // Resample a closed polygon to N points by arc length, forcing the corner vertices to be kept
@@ -705,36 +796,35 @@ namespace CustomProceduralParts
         private const float Mk2SideFlatRatio = 0.11907f; // side-flat half-height / half-width
         private const float Mk2RoundRatio = 0.63628f;    // top/bottom arc radius / half-width
 
-        // Mk2 silhouette polygon normalized into [-1,1]^2; cornerIdx = the 4 hard shoulder vertices.
-        private static Vector2[] BuildMk2Unit(out List<int> cornerIdx)
+        // Mk2 silhouette normalized into [-1,1]^2, its Sides points placed by hand rather than by arc length (which
+        // spent most of them on the straight diagonals, left the arcs a few, and wasn't mirror-symmetric): the
+        // mid-sides, the 4 shoulder corners and the 4 diagonal/arc tangent points exactly, nothing inside the
+        // straight runs, and the rest evenly by angle along the top and bottom arcs. Symmetric both ways, starting
+        // at +x, with the arc tops at Sides/4 and 3*Sides/4 where the ellipse has its top and bottom.
+        private static Vector2[] BuildMk2Unit(int n)
         {
             const float hw = 1f;
             float hh = Mk2HeightRatio * hw, sf = Mk2SideFlatRatio * hw, tr = Mk2RoundRatio * hw;
-            Vector2 pRt = new Vector2(hw, sf), pRb = new Vector2(hw, -sf);
-            Vector2 pLt = new Vector2(-hw, sf), pLb = new Vector2(-hw, -sf);
             Vector2 cTop = new Vector2(0f, hh - tr);
-            Vector2 tUr = Mk2Tangent(pRt, cTop, tr);
-            Vector2 tUl = new Vector2(-tUr.x, tUr.y);
-            Vector2 tLr = new Vector2(tUr.x, -tUr.y);
-            Vector2 tLl = new Vector2(-tUr.x, -tUr.y);
+            Vector2 tUr = Mk2Tangent(new Vector2(hw, sf), cTop, tr);
             float thR = Mathf.Atan2(tUr.y - cTop.y, tUr.x - cTop.x), thL = Mathf.PI - thR;
-            const int arc = 12;
+            int half = n / 2, arcIn = half - 5;   // the upper half: 0..half, of which 5 are fixed points
 
-            var pts = new List<Vector2>();
-            cornerIdx = new List<int>();
-            cornerIdx.Add(pts.Count); pts.Add(pRb);     // right-bottom shoulder
-            cornerIdx.Add(pts.Count); pts.Add(pRt);     // right-top shoulder
-            pts.Add(tUr);                                // up-right diagonal end
-            for (int k = 1; k < arc; k++) { float th = thR + (thL - thR) * k / arc; pts.Add(cTop + new Vector2(Mathf.Cos(th), Mathf.Sin(th)) * tr); }
-            pts.Add(tUl);
-            cornerIdx.Add(pts.Count); pts.Add(pLt);     // left-top shoulder
-            cornerIdx.Add(pts.Count); pts.Add(pLb);     // left-bottom shoulder
-            pts.Add(tLl);                                // low-left diagonal end
-            for (int k = arc - 1; k >= 1; k--) { float th = thR + (thL - thR) * k / arc; pts.Add(new Vector2(Mathf.Cos(th) * tr, -(cTop.y + Mathf.Sin(th) * tr))); }
-            pts.Add(tLr);                                // bottom arc end + low-right diagonal closes to pRb
-
-            for (int i = 0; i < pts.Count; i++) pts[i] = new Vector2(pts[i].x, pts[i].y / hh);   // normalize y to [-1,1]
-            return pts.ToArray();
+            var o = new Vector2[n];
+            o[0] = new Vector2(hw, 0f);                    // mid right side
+            o[1] = new Vector2(hw, sf);                    // right-top shoulder
+            o[2] = tUr;                                    // diagonal meets the top arc
+            for (int k = 1; k <= arcIn; k++)
+            {
+                float th = thR + (thL - thR) * k / (arcIn + 1);
+                o[2 + k] = cTop + new Vector2(Mathf.Cos(th), Mathf.Sin(th)) * tr;
+            }
+            o[half - 2] = new Vector2(-tUr.x, tUr.y);
+            o[half - 1] = new Vector2(-hw, sf);            // left-top shoulder
+            o[half] = new Vector2(-hw, 0f);                // mid left side
+            for (int j = 1; j < half; j++) o[n - j] = new Vector2(o[j].x, -o[j].y);   // lower half mirrors the upper
+            for (int i = 0; i < n; i++) o[i] = new Vector2(o[i].x, o[i].y / hh);
+            return o;
         }
 
         // Tangent point on circle (centre C, radius r) from external point P, toward the cap apex.
@@ -771,13 +861,53 @@ namespace CustomProceduralParts
         }
 
         // A ring's inner wall: same placement (y / offsets / tilt), outline inset by the shell thickness,
-        // clamped so a thick wall on a small section can't collapse or invert the hole.
+        // clamped so a thick wall on a small section can't collapse or invert the hole. That clamp is enough
+        // for a convex section (every built-in); a concave custom one (thin arms, notches) can tangle at a
+        // smaller inset, so there the wall is thinned until the inner outline is clean.
         private Ring InnerRing(Ring outer)
         {
             float t = Mathf.Min(shellThickness, ShellInsetFraction * Mathf.Min(outer.rH, outer.rV));
             Ring inner = outer;                       // struct copy carries y/offsets/tilt
             inner.outline = InsetOutline(outer.outline, t);
+            if (InsetOk(outer.outline, inner.outline)) return inner;
+            float lo = 0f, hi = t;
+            Vector2[] best = (Vector2[])outer.outline.Clone();   // zero wall: always valid
+            for (int it = 0; it < 8; it++)
+            {
+                float mid = 0.5f * (lo + hi);
+                Vector2[] o = InsetOutline(outer.outline, mid);
+                if (InsetOk(outer.outline, o)) { lo = mid; best = o; }
+                else hi = mid;
+            }
+            inner.outline = best;
             return inner;
+        }
+
+        // The inset outline is usable: no edge flipped direction, and for a concave outline also no edge
+        // crossing another inner edge or the outer outline.
+        private static bool InsetOk(Vector2[] outer, Vector2[] inner)
+        {
+            int n = outer.Length;
+            bool convex = true;
+            for (int j = 0; j < n; j++)
+            {
+                Vector2 e = outer[(j + 1) % n] - outer[j];
+                if (e.sqrMagnitude > 1e-12f && Vector2.Dot(inner[(j + 1) % n] - inner[j], e) <= 0f) return false;
+                Vector2 f = outer[(j + 2) % n] - outer[(j + 1) % n];
+                if (e.x * f.y - e.y * f.x < -1e-6f * (e.sqrMagnitude + f.sqrMagnitude)) convex = false;
+            }
+            if (convex) return true;
+            for (int i = 0; i < n; i++)
+            {
+                Vector2 a = inner[i], b = inner[(i + 1) % n];
+                for (int j = 0; j < n; j++)
+                {
+                    if (SectionGeometry.SegmentsCross(a, b, outer[j], outer[(j + 1) % n])) return false;
+                    if (j <= i + 1 || (i == 0 && j == n - 1)) continue;   // adjacent inner edges share a vertex
+                    if (SectionGeometry.SegmentsCross(a, b, inner[j], inner[(j + 1) % n])) return false;
+                }
+            }
+            return true;
         }
 
         private List<Ring> BuildInnerRings(List<Ring> rings)
@@ -788,18 +918,7 @@ namespace CustomProceduralParts
         }
 
         // Polygon area of a ring's outline (shoelace), used for an accurate volume of any profile.
-        private static float RingArea(Ring ring)
-        {
-            Vector2[] o = ring.outline;
-            int n = o.Length;
-            float area = 0f;
-            for (int j = 0; j < n; j++)
-            {
-                Vector2 prev = o[(j + n - 1) % n], cur = o[j];
-                area += prev.x * cur.y - cur.x * prev.y;
-            }
-            return Mathf.Abs(area) * 0.5f;
-        }
+        private static float RingArea(Ring ring) => Mathf.Abs(SectionGeometry.SignedArea(ring.outline));
 
         // Sane size bounds. A node "size" is a cross-section diameter. The hard 100 m cap on the
         // effective (scaled) radius keeps the volume well within the SI formatter's range -- an
@@ -850,7 +969,7 @@ namespace CustomProceduralParts
                 y = NodeY(n), rH = rH, rV = rV, offsetZ = Eoff(n), offsetX = EoffH(n),
                 tanTiltV = TiltTan(n.tiltV), tanTiltH = TiltTan(n.tiltH),
                 outline = RingOutline(n.Section, n.Section, 0f, rH, rV, n.filletTop, n.filletBottom, n.filletTop, n.filletBottom,
-                                      n.stretch, n.stretch),
+                                      n.stretch, n.stretch, Sides),
             };
         }
 
@@ -899,7 +1018,7 @@ namespace CustomProceduralParts
                         tanTiltH = TiltTan(Mathf.Lerp(aTh, bTh, h)),
                         outline = RingOutline(loS, hiS, t, rH, rV,
                                               lo.filletTop, lo.filletBottom, hi.filletTop, hi.filletBottom,
-                                              lo.stretch, hi.stretch),
+                                              lo.stretch, hi.stretch, Sides),
                     });
                 }
             }
@@ -1160,6 +1279,7 @@ namespace CustomProceduralParts
         private void LoadProxyFromNode()
         {
             if (nodes.Count == 0) return;
+            if (HighLogic.LoadedSceneIsEditor) RefreshSectionOptions();   // the craft's sections come and go
             SpineNode n = nodes[SelIndex];
             nodeSlopeOpt = n.slopeAbove.ToString();
             nodeProfileOpt = n.Section.name;   // a missing section shows as the Ellipse it renders as
@@ -1245,6 +1365,7 @@ namespace CustomProceduralParts
             if (_rebuilding) return;
             if (Equals(f.GetValue(this), obj)) return;
             LoadProxyFromNode();
+            FollowSelected();
             MonoUtilities.RefreshPartContextWindow(part);
         }
 
@@ -1277,8 +1398,10 @@ namespace CustomProceduralParts
                     case nameof(nodeFilletBottom): n.filletBottom = nodeFilletBottom = Mathf.Clamp01(nodeFilletBottom); break;
                     case nameof(nodeStretch): n.stretch = nodeStretch = Mathf.Clamp01(nodeStretch); break;
                     case nameof(nodeProfileOpt):
-                        n.section = CrossSectionLibrary.Resolve(nodeProfileOpt).name;
+                        AssignSection(n, AvailableSections().FirstOrDefault(s => s.name == nodeProfileOpt)
+                                         ?? CrossSectionLibrary.Resolve(nodeProfileOpt));
                         UpdateProfileFieldVisibility(n.Section);
+                        FollowSelected();
                         MonoUtilities.RefreshPartContextWindow(part);
                         break;
                     case nameof(nodePos):
@@ -1310,7 +1433,7 @@ namespace CustomProceduralParts
         private static string Dump(SpineNode n) => $"[pos={n.position:F3} H={n.sizeH:F3} V={n.sizeV:F3} off={n.offsetV:F3}/{n.offsetH:F3} tilt={n.tiltV:F1}/{n.tiltH:F1} fil={n.filletTop:F2}/{n.filletBottom:F2} str={n.stretch:F2} sec={n.section} slope={n.slopeAbove}]";
         private string DumpAll() => string.Join(" ", nodes.ConvertAll(Dump).ToArray()) + $" | len={length:F3} hS={hScale:F3} vS={vScale:F3}";
 
-        private static T ParseEnum<T>(string s, T fallback) where T : struct =>
+        internal static T ParseEnum<T>(string s, T fallback) where T : struct =>
             Enum.TryParse(s, out T v) ? v : fallback;
 
         private void RebuildAndPropagate()
@@ -1335,6 +1458,7 @@ namespace CustomProceduralParts
                 if (FindAbstractShapeModule(p, this) is ProceduralShapeSpine pm)
                 {
                     pm.length = length;
+                    pm.sectionPoints = sectionPoints;
                     pm.hScale = hScale;
                     pm.vScale = vScale;
                     pm.airfoil = airfoil;
@@ -1383,6 +1507,7 @@ namespace CustomProceduralParts
             // Only the active Spine shape on a selected part drives gizmos. A disabled shape module stops
             // getting Update() (so it would leave its handles orphaned); guarding here also covers a stale
             // active shape and hides the gizmos once the part's PAW closes (part deselected).
+            UpdateOutlines();
             bool selected = part.PartActionWindow != null && part.PartActionWindow.isActiveAndEnabled;
             if (!HighLogic.LoadedSceneIsEditor || nodes.Count == 0 || PPart == null || PPart.CurrentShape != this || !selected)
             {
@@ -1401,11 +1526,11 @@ namespace CustomProceduralParts
             int hover = -1;
             if (_dragIndex >= 0) { hover = _dragIndex; hoverKind = HoverKind.Node; }
             else if (_tipDragIndex >= 0) { hover = _tipDragIndex; hoverKind = (_tipSide < 0) ? HoverKind.TipLeft : HoverKind.TipRight; }
-            else if (cam != null && !CrossSectionEditor.MouseOverWindow) hover = ComputeHover(cam, out hoverKind);
+            else if (cam != null && !CrossSectionEditor.MouseOverWindow && !SpineOptionsWindow.MouseOverWindow) hover = ComputeHover(cam, out hoverKind);
 
             Quaternion rot = (cam != null) ? cam.transform.rotation : Quaternion.identity;
             Vector3 up = (cam != null) ? cam.transform.up : Vector3.up;
-            SpineHandleVis vis = ParseEnum(handleVisOpt, SpineHandleVis.Active);
+            SpineHandleVis vis = SpineSettings.HandleVis;
 
             for (int i = 0; i < nodes.Count; i++)
             {
@@ -1630,7 +1755,7 @@ namespace CustomProceduralParts
                     // right-drag = horizontal offset, wheel = height.
                     if (Input.GetMouseButtonDown(0))
                     {
-                        bool canDrag = !requireSelectToDrag || hover == SelIndex;
+                        bool canDrag = !SpineSettings.ClickBeforeDrag || hover == SelIndex;
                         SelectNode(hover);
                         if (canDrag)
                         {
@@ -1642,7 +1767,7 @@ namespace CustomProceduralParts
                     }
                     else if (Input.GetMouseButtonDown(1))
                     {
-                        bool canDrag = !requireSelectToDrag || hover == SelIndex;
+                        bool canDrag = !SpineSettings.ClickBeforeDrag || hover == SelIndex;
                         SelectNode(hover);
                         if (canDrag)
                         {
@@ -1718,15 +1843,17 @@ namespace CustomProceduralParts
         {
             selectedNode = Mathf.Clamp(i, 0, nodes.Count - 1);
             LoadProxyFromNode();
+            FollowSelected();
             MonoUtilities.RefreshPartContextWindow(part);
         }
 
         private void CycleProfile(int i)
         {
             SpineNode n = nodes[i];
-            IList<CrossSection> all = CrossSectionLibrary.All;      // built-ins, then customs A-Z
-            int at = Math.Max(0, ((List<CrossSection>)all).FindIndex(s => s.name == n.Section.name));
-            n.section = all[(at + 1) % all.Count].name;
+            List<CrossSection> all = AvailableSections();           // built-ins, the craft's, then shared A-Z
+            int at = Math.Max(0, all.FindIndex(s => s.name == n.Section.name));
+            AssignSection(n, all[(at + 1) % all.Count]);
+            if (i == SelIndex) FollowSelected();
             RebuildAndPropagate();                                  // section type changes geometry
             if (i == SelIndex) { LoadProxyFromNode(); MonoUtilities.RefreshPartContextWindow(part); }
         }
@@ -1818,28 +1945,36 @@ namespace CustomProceduralParts
         private static Mesh _iconEllipse, _iconRect, _iconMk2, _iconMk3;
         // Custom-section glyphs by name, rebuilt when the section's geometry key changes.
         private static readonly Dictionary<string, KeyValuePair<string, Mesh>> _customIcons = new Dictionary<string, KeyValuePair<string, Mesh>>();
+        private static void DropCustomIcon(string name)
+        {
+            if (!_customIcons.TryGetValue(name, out var old)) return;
+            if (old.Value != null) Destroy(old.Value);
+            _customIcons.Remove(name);
+        }
+
         private static Mesh ProfileIconMesh(CrossSection s)
         {
             if (!s.IsBuiltIn)
             {
                 if (_customIcons.TryGetValue(s.name, out var hit) && hit.Key == s.Key && hit.Value != null) return hit.Value;
+                DropCustomIcon(s.name);
                 Mesh m = PolyMesh(s.UnitOutline, "Custom", new Vector2(1f, 0.62f));
                 _customIcons[s.name] = new KeyValuePair<string, Mesh>(s.Key, m);
                 return m;
             }
             switch (s.builtIn.Value)
             {
-                case SpineProfile.Rectangle: return _iconRect ??= FanMesh(UnitRect, "Rect", new Vector2(1f, 0.6f));
-                case SpineProfile.Mk2: return _iconMk2 ??= FanMesh(UnitMk2, "Mk2", new Vector2(1f, 0.6f));
-                case SpineProfile.Mk3: return _iconMk3 ??= FanMesh(BuildMk3Outline(0.43f, 0.5f), "Mk3", Vector2.one);
-                default: return _iconEllipse ??= FanMesh(UnitCircle, "Ellipse", new Vector2(1f, 0.62f));
+                case SpineProfile.Rectangle: return _iconRect ??= PolyMesh(s.UnitOutline, "Rect", new Vector2(1f, 0.6f));
+                case SpineProfile.Mk2: return _iconMk2 ??= PolyMesh(s.UnitOutline, "Mk2", new Vector2(1f, 0.6f));
+                case SpineProfile.Mk3: return _iconMk3 ??= PolyMesh(BuildMk3Outline(0.43f, 0.5f, MinSides), "Mk3", Vector2.one);
+                default: return _iconEllipse ??= PolyMesh(UnitCircle(MinSides), "Ellipse", new Vector2(1f, 0.62f));
             }
         }
 
-        private static Mesh BuildCircle() => FanMesh(UnitCircle, "Circle", Vector2.one);
+        private static Mesh BuildCircle() => PolyMesh(UnitCircle(MinSides), "Circle", Vector2.one);
 
         private static Mesh _meshDiamond;
-        private static Mesh BuildDiamond() => FanMesh(new[] { new Vector2(1f, 0f), new Vector2(0f, 1f), new Vector2(-1f, 0f), new Vector2(0f, -1f) }, "Diamond", Vector2.one);
+        private static Mesh BuildDiamond() => PolyMesh(new[] { new Vector2(1f, 0f), new Vector2(0f, 1f), new Vector2(-1f, 0f), new Vector2(0f, -1f) }, "Diamond", Vector2.one);
 
         // Triangle pointing +Y (oriented along the spine by SpineBillboard for the end nodes).
         private static Mesh _meshTriangle;
@@ -1863,23 +1998,6 @@ namespace CustomProceduralParts
             return Quaternion.LookRotation(fwd, proj.normalized);
         }
 
-        // Filled convex polygon (triangle fan from the centre) of a unit outline, fit into the icon box.
-        private static Mesh FanMesh(Vector2[] outline, string name, Vector2 scale)
-        {
-            int n = outline.Length;
-            var v = new Vector3[n + 1];
-            var col = new Color[n + 1];
-            v[0] = Vector3.zero; col[0] = Color.white;
-            for (int i = 0; i < n; i++)
-            {
-                v[i + 1] = new Vector3(outline[i].x * scale.x * 0.5f, outline[i].y * scale.y * 0.5f, 0f);
-                col[i + 1] = Color.white;
-            }
-            var tris = new int[n * 3];
-            for (int i = 0; i < n; i++) { tris[i * 3] = 0; tris[i * 3 + 1] = 1 + i; tris[i * 3 + 2] = 1 + (i + 1) % n; }
-            return new Mesh { name = "SpineProf" + name, vertices = v, colors = col, triangles = tris };
-        }
-
         // Filled polygon of any simple (possibly concave) unit outline, fit into the icon box.
         private static Mesh PolyMesh(Vector2[] outline, string name, Vector2 scale)
         {
@@ -1888,7 +2006,7 @@ namespace CustomProceduralParts
             var col = new Color[n];
             for (int i = 0; i < n; i++) { v[i] = new Vector3(outline[i].x * scale.x * 0.5f, outline[i].y * scale.y * 0.5f, 0f); col[i] = Color.white; }
             int[] tri = SectionGeometry.Triangulate(outline);
-            var tris = new int[tri.Length * 2];   // double-sided, like FanMesh's winding-agnostic use
+            var tris = new int[tri.Length * 2];   // double-sided: the icons billboard either way round
             for (int i = 0; i < tri.Length; i += 3)
             {
                 tris[2 * i] = tri[i]; tris[2 * i + 1] = tri[i + 1]; tris[2 * i + 2] = tri[i + 2];
@@ -1935,6 +2053,138 @@ namespace CustomProceduralParts
             return m;
         }
 
+        // ---- cross-section outlines (Spine Options) ----
+        // A line loop per node on the part's own transform (so it moves with the part), its points the ring's
+        // own, a hair proud of the skin; the selected node's thicker and orange. Each loop is drawn twice: in front
+        // of the skin as is, and behind it (where the part or anything else hides it) faint, so the far side of a
+        // section reads as hidden. Through each, a faint vertical line from the section's bottom to its top across
+        // the node's centre, where its handle sits, drawn through the skin as the handles are, so a handle reads as
+        // its outline's. Redrawn when the shape, the selection or the option changes.
+        private readonly List<LineRenderer> _outlines = new List<LineRenderer>();
+        private int _shapeVersion, _outlineKey = int.MinValue;
+        private static Material _outlineMat, _hiddenMat, _chordMat;
+        private static readonly Color OutlineColor = new Color(0.35f, 0.85f, 1f, 0.85f);
+        private static readonly Color OutlineSelected = new Color(1f, 0.70f, 0.15f, 1f);
+        private const float HiddenAlpha = 0.25f;                 // an outline's hidden part, of its own alpha
+        private const float ChordAlpha = 0.45f, ChordSelectedAlpha = 0.70f;
+        private const string HiddenName = "SpineSectionOutlineHidden", ChordName = "SpineSectionChord";
+
+        private static Material LineMaterial(string name, UnityEngine.Rendering.CompareFunction zTest)
+        {
+            var m = new Material(Shader.Find("Hidden/Internal-Colored")) { name = name };
+            m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            m.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
+            m.SetInt("_ZWrite", 0);
+            m.SetInt("_ZTest", (int)zTest);
+            return m;
+        }
+
+        private static LineRenderer NewLine(Transform parent, string name, Material mat, bool loop)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.layer = parent.gameObject.layer;
+            var lr = go.AddComponent<LineRenderer>();
+            lr.sharedMaterial = mat;
+            lr.useWorldSpace = false;
+            lr.loop = loop;
+            lr.numCornerVertices = 2;
+            lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            lr.receiveShadows = false;
+            return lr;
+        }
+
+        private static LineRenderer Child(LineRenderer lr, string name)
+        {
+            Transform t = lr.transform.Find(name);
+            return t != null ? t.GetComponent<LineRenderer>() : null;
+        }
+
+        private void UpdateOutlines()
+        {
+            bool on = HighLogic.LoadedSceneIsEditor && SpineSettings.ShowOutlines && nodes.Count > 0 && PPart != null && PPart.CurrentShape == this;
+            if (!on) { ClearOutlines(); return; }
+            int key = (_shapeVersion * 397 ^ SelIndex) * 31 + nodes.Count;
+            if (key == _outlineKey && _outlines.Count == nodes.Count && _outlines.TrueForAll(l => l != null)) return;
+            _outlineKey = key;
+            if (_outlineMat == null) _outlineMat = LineMaterial("SpineSectionOutline", UnityEngine.Rendering.CompareFunction.LessEqual);
+            if (_hiddenMat == null) _hiddenMat = LineMaterial(HiddenName, UnityEngine.Rendering.CompareFunction.Greater);
+            if (_chordMat == null) _chordMat = LineMaterial(ChordName, UnityEngine.Rendering.CompareFunction.Always);
+            while (_outlines.Count < nodes.Count)
+            {
+                LineRenderer lr = NewLine(part.transform, "SpineSectionOutline", _outlineMat, true);
+                NewLine(lr.transform, HiddenName, _hiddenMat, true);   // these go with their outline
+                NewLine(lr.transform, ChordName, _chordMat, false);
+                _outlines.Add(lr);
+            }
+            while (_outlines.Count > nodes.Count)
+            {
+                LineRenderer extra = _outlines[_outlines.Count - 1];
+                _outlines.RemoveAt(_outlines.Count - 1);
+                if (extra != null) Destroy(extra.gameObject);
+            }
+            float size = 0f;
+            foreach (SpineNode n in nodes) size = Mathf.Max(size, Erh(n), Erv(n));
+            float width = Mathf.Clamp(0.008f * size, 0.01f, 0.05f), proud = 0.4f * width + 0.005f;
+            int sel = SelIndex;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                LineRenderer lr = _outlines[i];
+                if (lr == null) continue;
+                Ring ring = NodeRing(nodes[i]);
+                int n = ring.outline.Length;
+                var pts = new Vector3[n];
+                Vector3 c = Vector3.zero;
+                for (int j = 0; j < n; j++) c += pts[j] = RingV(ring, j);
+                c /= n;
+                for (int j = 0; j < n; j++) pts[j] += (pts[j] - c).normalized * proud;
+                bool hot = i == sel;
+                Color col = hot ? OutlineSelected : OutlineColor;
+                float w = hot ? 2f * width : width;
+                lr.positionCount = n;
+                lr.SetPositions(pts);
+                lr.startColor = lr.endColor = col;
+                lr.widthMultiplier = w;
+
+                LineRenderer hidden = Child(lr, HiddenName);
+                if (hidden != null)
+                {
+                    hidden.positionCount = n;
+                    hidden.SetPositions(pts);
+                    hidden.startColor = hidden.endColor = new Color(col.r, col.g, col.b, col.a * HiddenAlpha);
+                    hidden.widthMultiplier = w;
+                }
+
+                // the vertical: where the section crosses its own centre line (x = 0), bottom to top, through the
+                // centre (the handle), sheared by the tilt as the ring is
+                LineRenderer chord = Child(lr, ChordName);
+                if (chord == null) continue;
+                float lo = 0f, hi = 0f;
+                for (int j = 0; j < n; j++)
+                {
+                    Vector2 a = ring.outline[j], b = ring.outline[(j + 1) % n];
+                    if ((a.x <= 0f) == (b.x <= 0f)) continue;
+                    float t = a.x / (a.x - b.x), y = a.y + t * (b.y - a.y);
+                    lo = Mathf.Min(lo, y);
+                    hi = Mathf.Max(hi, y);
+                }
+                Vector3 At(float y) => RingV(new Ring { y = ring.y, offsetX = ring.offsetX, offsetZ = ring.offsetZ, tanTiltV = ring.tanTiltV,
+                                                        tanTiltH = ring.tanTiltH, outline = new[] { new Vector2(0f, y) } }, 0);
+                chord.positionCount = 3;
+                chord.SetPositions(new[] { At(lo - proud), At(0f), At(hi + proud) });
+                chord.startColor = chord.endColor = new Color(col.r, col.g, col.b, hot ? ChordSelectedAlpha : ChordAlpha);
+                chord.widthMultiplier = 0.8f * w;
+            }
+        }
+
+        private void ClearOutlines()
+        {
+            foreach (LineRenderer lr in _outlines) if (lr != null) Destroy(lr.gameObject);
+            _outlines.Clear();
+            _outlineKey = int.MinValue;
+        }
+
         private void CleanupGizmo()
         {
             _dragIndex = -1;
@@ -1952,10 +2202,16 @@ namespace CustomProceduralParts
             list.Clear();
         }
 
-        public void OnDisable() => CleanupGizmo();
+        public void OnDisable()
+        {
+            CleanupGizmo();
+            ClearOutlines();
+        }
+
         public void OnDestroy()
         {
             CleanupGizmo();
+            ClearOutlines();
             if (_subscribed) { CrossSectionLibrary.Changed -= OnSectionLibraryChanged; _subscribed = false; }
         }
 
@@ -2112,10 +2368,11 @@ namespace CustomProceduralParts
         private static bool[] ComputeHardColumns(List<Ring> rings)
         {
             const float thresholdDeg = 30f;
-            var hard = new bool[Sides];
+            int sides = rings.Count > 0 ? rings[0].outline.Length : MinSides;
+            var hard = new bool[sides];
             foreach (Ring ring in rings)
             {
-                for (int j = 0; j < Sides; j++)
+                for (int j = 0; j < sides; j++)
                 {
                     if (hard[j]) continue;
                     Vector3 a = RingV(ring, j) - RingV(ring, j - 1);
@@ -2141,8 +2398,8 @@ namespace CustomProceduralParts
             var mesh = new UncheckedMesh(Sides * 2, (Sides - 2) * 2);
             WriteCapVertices(mesh, rings[0], 0, false);
             WriteCapVertices(mesh, rings[rings.Count - 1], Sides, true);
-            WriteCapTriangles(mesh, rings[0], false, 0, 0);
-            WriteCapTriangles(mesh, rings[rings.Count - 1], true, Sides, Sides - 2);
+            WriteCapTriangles(mesh, nodes[0].Section, false, 0, 0);
+            WriteCapTriangles(mesh, nodes[nodes.Count - 1].Section, true, Sides, Sides - 2);
             WriteToAppropriateMesh(mesh, PPart.EndsIconMesh, EndsMesh);
         }
 
@@ -2187,18 +2444,53 @@ namespace CustomProceduralParts
             }
         }
 
-        // Ear-clipped rather than a fan from vertex 0, so concave custom sections cap correctly. The
-        // triangulation is CCW in outline space; the top cap reverses it to face +Y.
-        private void WriteCapTriangles(UncheckedMesh mesh, Ring ring, bool up, int vertexOffset, int triOffset)
+        // Ear-clipped rather than a fan from vertex 0, so concave custom sections cap correctly. The end ring
+        // is its node's section scaled, so the section's cached triangulation fits. It's CCW in outline
+        // space; the top cap reverses it to face +Y.
+        private void WriteCapTriangles(UncheckedMesh mesh, CrossSection section, bool up, int vertexOffset, int triOffset)
         {
             int tio = triOffset * 3;
-            int[] tri = SectionGeometry.Triangulate(ring.outline);
+            int[] tri = section.CapTriangles(Sides);
             for (int i = 0; i < Sides - 2; i++)
             {
                 mesh.triangles[i * 3 + tio] = tri[i * 3] + vertexOffset;
                 mesh.triangles[i * 3 + 1 + tio] = (up ? tri[i * 3 + 2] : tri[i * 3 + 1]) + vertexOffset;
                 mesh.triangles[i * 3 + 2 + tio] = (up ? tri[i * 3 + 1] : tri[i * 3 + 2]) + vertexOffset;
             }
+        }
+
+        // The outline points a ring gives the collider. It's one convex hull, so only the outline's hull
+        // matters (concave notches can't), thinned to ColliderSides by dropping the hull points that cost the
+        // least area -- corners and tips of a custom section survive, wherever they fall in the outline.
+        private static List<int> ColliderPoints(Vector2[] o)
+        {
+            var idx = Enumerable.Range(0, o.Length).OrderBy(i => o[i].x).ThenBy(i => o[i].y).ToList();
+            var hull = new List<int>(2 * o.Length);
+            float Turn(int a, int b, int c) => (o[b].x - o[a].x) * (o[c].y - o[a].y) - (o[b].y - o[a].y) * (o[c].x - o[a].x);
+            for (int pass = 0; pass < 2; pass++)   // monotone chain: lower hull, then upper
+            {
+                int floor = hull.Count + 1;
+                foreach (int i in idx)
+                {
+                    while (hull.Count > floor && Turn(hull[hull.Count - 2], hull[hull.Count - 1], i) <= 1e-9f) hull.RemoveAt(hull.Count - 1);
+                    hull.Add(i);
+                }
+                hull.RemoveAt(hull.Count - 1);
+                idx.Reverse();
+            }
+            if (hull.Count == 0) hull.Add(0);
+            while (hull.Count > ColliderSides)
+            {
+                int drop = 0;
+                float least = float.MaxValue;
+                for (int k = 0; k < hull.Count; k++)
+                {
+                    float area = Mathf.Abs(Turn(hull[(k + hull.Count - 1) % hull.Count], hull[k], hull[(k + 1) % hull.Count]));
+                    if (area < least) { least = area; drop = k; }
+                }
+                hull.RemoveAt(drop);
+            }
+            return hull;
         }
 
         private void GenerateColliderMesh(List<Ring> rings)
@@ -2209,12 +2501,12 @@ namespace CustomProceduralParts
             int capTris = shellMode ? 0 : (ColliderSides - 2) * 2;   // open ends in shell mode
             var mesh = new UncheckedMesh(rc * per, sideTris + capTris);
 
-            int stride = Mathf.Max(1, Sides / ColliderSides);
             for (int r = 0; r < rc; r++)
             {
                 Ring ring = rings[r];
+                List<int> pts = ColliderPoints(ring.outline);
                 for (int j = 0; j < ColliderSides; j++)
-                    mesh.vertices[r * per + j] = RingV(ring, j * stride);
+                    mesh.vertices[r * per + j] = RingV(ring, pts[j % pts.Count]);   // a short hull repeats points
             }
 
             int t = 0;
