@@ -539,6 +539,9 @@ namespace CustomProceduralParts.KspTests
                 SpineSettings.Set(vis0, click0, true);
                 s.SelectNode(1);
                 yield return Wait.Frames(3);
+                Assert.Equal(0, Lines().Length, "no outlines while the part isn't selected (PAW closed)");
+                yield return Paw.Open(s.part);
+                yield return Wait.Frames(3);
                 LineRenderer[] lines = Lines();
                 Assert.Equal(s.nodes.Count, lines.Length, "an outline per node");
                 Assert.True(lines.All(l => l.positionCount == s.Sides), "each the ring's points");
@@ -564,12 +567,19 @@ namespace CustomProceduralParts.KspTests
                                 $"node {i}'s line vertical, bottom to top ({lo} .. {hi})");
                 }
                 yield return Snap.Shot(ctx, "outlines");
+                Paw.CloseAll();
+                yield return Wait.Frames(3);
+                Assert.Equal(0, Lines().Length, "outlines gone with the part deselected");
+                yield return Paw.Open(s.part);
+                yield return Wait.Frames(3);
+                Assert.Equal(s.nodes.Count, Lines().Length, "back when it's selected again");
                 SpineSettings.Set(vis0, click0, false);
                 yield return Wait.Frames(3);
                 Assert.Equal(0, Lines().Length, "outlines gone with the option off");
             }
             finally
             {
+                Paw.CloseAll();
                 SpineSettings.Set(vis0, click0, outlines0);
                 s.SelectNode(0);
                 var w = Object.FindObjectOfType<SpineOptionsWindow>();

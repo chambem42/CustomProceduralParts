@@ -41,9 +41,9 @@ in-scene gizmo. Added to every ProceduralParts part (pick it from the Shape sele
   section glyph cycles the profile. Right-drag for the alternate axis.
 - **Spine Options** in the PAW opens a window. For all Spine parts (saved in
   `PluginData/SpineOptions.cfg`): which nodes show handles (all, the selected one, none), click a
-  node before dragging it, and cross-section outlines (every node's section drawn on the part, its
-  hidden side faint, with a faint vertical line through each node's handle; the selected node's in
-  orange). For this part (saved with the craft): points per section, 24 to 96, for smoother curves.
+  node before dragging it, and cross-section outlines (on the selected part, every node's section
+  drawn on it, its hidden side faint, with a faint vertical line through each node's handle; the
+  selected node's in orange). For this part (saved with the craft): points per section, 24 to 96, for smoother curves.
 - Airfoil toggle (drives a stock ModuleLiftingSurface the patch adds).
 - Hollow shell mode with variable thickness and closable ends.
 - Volume, drag cubes, symmetry, and FAR/TestFlight interop.

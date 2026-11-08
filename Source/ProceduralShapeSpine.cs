@@ -1507,8 +1507,8 @@ namespace CustomProceduralParts
             // Only the active Spine shape on a selected part drives gizmos. A disabled shape module stops
             // getting Update() (so it would leave its handles orphaned); guarding here also covers a stale
             // active shape and hides the gizmos once the part's PAW closes (part deselected).
-            UpdateOutlines();
             bool selected = part.PartActionWindow != null && part.PartActionWindow.isActiveAndEnabled;
+            UpdateOutlines(selected);
             if (!HighLogic.LoadedSceneIsEditor || nodes.Count == 0 || PPart == null || PPart.CurrentShape != this || !selected)
             {
                 CleanupGizmo();
@@ -2101,9 +2101,10 @@ namespace CustomProceduralParts
             return t != null ? t.GetComponent<LineRenderer>() : null;
         }
 
-        private void UpdateOutlines()
+        // Outlines on the selected part only (its PAW open, as for the gizmo), so other Spines stay uncluttered.
+        private void UpdateOutlines(bool selected)
         {
-            bool on = HighLogic.LoadedSceneIsEditor && SpineSettings.ShowOutlines && nodes.Count > 0 && PPart != null && PPart.CurrentShape == this;
+            bool on = HighLogic.LoadedSceneIsEditor && SpineSettings.ShowOutlines && selected && nodes.Count > 0 && PPart != null && PPart.CurrentShape == this;
             if (!on) { ClearOutlines(); return; }
             int key = (_shapeVersion * 397 ^ SelIndex) * 31 + nodes.Count;
             if (key == _outlineKey && _outlines.Count == nodes.Count && _outlines.TrueForAll(l => l != null)) return;
