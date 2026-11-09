@@ -711,5 +711,109 @@ namespace CustomProceduralParts.KspTests
             Assert.Near(-0.6, p0.y, 1e-4, "start y");
             yield break;
         }
+
+        // A square, and a square whose top is an arch of many vertices: very different vertex counts.
+        private static readonly Vector2[] Square = { new Vector2(1f, -1f), new Vector2(1f, 1f), new Vector2(-1f, 1f), new Vector2(-1f, -1f) };
+
+        private static Vector2[] ArchTop()
+        {
+            var v = new List<Vector2> { new Vector2(-1f, -1f), new Vector2(1f, -1f), new Vector2(1f, 0.3f) };
+            for (int d = 10; d <= 170; d += 10)
+                v.Add(new Vector2(Mathf.Cos(d * Mathf.Deg2Rad), 0.3f + 0.7f * Mathf.Sin(d * Mathf.Deg2Rad)));
+            v.Add(new Vector2(-1f, 0.3f));
+            return v.ToArray();
+        }
+
+        // Mean distance between paired points of two outlines, and the largest angle (about the centre) between them.
+        private static (float mean, float maxDeg) Pairing(Vector2[] a, Vector2[] b)
+        {
+            float sum = 0f, max = 0f;
+            for (int j = 0; j < a.Length; j++)
+            {
+                sum += (a[j] - b[j]).magnitude;
+                max = Mathf.Max(max, Mathf.Abs(Mathf.DeltaAngle(Mathf.Atan2(a[j].y, a[j].x) * Mathf.Rad2Deg, Mathf.Atan2(b[j].y, b[j].x) * Mathf.Rad2Deg)));
+            }
+            return (sum / a.Length, max);
+        }
+
+        private static bool HasPoint(Vector2[] ring, Vector2 p) => ring.Any(q => (q - p).sqrMagnitude < 1e-6f);
+
+        /// <summary>
+        /// Neighbouring sections with very different vertex counts pair their points by best fit: a 4-vertex square next to
+        /// a 21-vertex arched top morphs corner to corner, where sampling each on its own (the old way) slid the pairing
+        /// around the outline and twisted the segment. Both sections' corners stay exact.
+        /// </summary>
+        [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineTest")]
+        public static IEnumerator Editor_BestFitPairingAcrossVertexCounts(TestContext ctx)
+        {
+            ProceduralShapeSpine s = Spine();
+            var snap = new Snapshot(s);
+            try
+            {
+                yield return Use(s, "ZzSquare", Square, i => i == 1);
+                yield return Use(s, "ZzArch", ArchTop(), i => i == 2);
+                Vector2[][] units = s._alignUnits;
+                Assert.NotNull(units, "a spine with custom sections is aligned");
+                Vector2[] a = units[1], b = units[2];
+                ctx.Record("points", a.Length);
+                (float mean, float maxDeg) fit = Pairing(a, b);
+                CrossSection sq = CrossSectionLibrary.Get("ZzSquare"), arch = CrossSectionLibrary.Get("ZzArch");
+                (float mean, float maxDeg) old = Pairing(SectionGeometry.Resample(sq.verts, s.Sides), SectionGeometry.Resample(arch.verts, s.Sides));
+                ctx.Record("bestFit", $"mean {fit.mean:F3} max {fit.maxDeg:F1} deg");
+                ctx.Record("separately", $"mean {old.mean:F3} max {old.maxDeg:F1} deg");
+                Assert.True(fit.mean < 0.6f * old.mean, $"pairs closer than sampling each alone ({fit.mean:F3} vs {old.mean:F3})");
+                Assert.True(fit.maxDeg < 45f, $"no pair more than 45 deg apart around the outline ({fit.maxDeg:F1})");
+                foreach (Vector2 c in sq.verts) Assert.True(HasPoint(a, c), $"the square's corner {c} is a ring point");
+                foreach (Vector2 c in new[] { new Vector2(-1f, -1f), new Vector2(1f, -1f), new Vector2(1f, 0.3f), new Vector2(-1f, 0.3f) })
+                    Assert.True(HasPoint(b, arch.verts.First(v => (v - c).sqrMagnitude < 1e-4f)), $"the arch's corner {c} is a ring point");
+                // the bottom corners pair with each other
+                int ia = Enumerable.Range(0, a.Length).First(j => (a[j] - new Vector2(1f, -1f)).sqrMagnitude < 1e-6f);
+                Assert.True((b[ia] - arch.verts[1]).sqrMagnitude < 1e-4f, $"the square's bottom-right corner pairs with the arch's ({b[ia]})");
+                yield return Snap.Shot(ctx, "square-to-arch");
+            }
+            finally
+            {
+                snap.Restore();
+                Cleanup("ZzSquare", "ZzArch");
+            }
+        }
+
+        /// <summary>Neighbouring sections with the same vertex count pair vertex to vertex.</summary>
+        [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineTest")]
+        public static IEnumerator Editor_SameVertexCountPairsVertexToVertex(TestContext ctx)
+        {
+            Vector2[] hexA = Enumerable.Range(0, 6).Select(i => new Vector2(Mathf.Cos(i * Mathf.PI / 3f), Mathf.Sin(i * Mathf.PI / 3f))).ToArray();
+            // an edit of it, as a player would make one: the upper-right vertex pulled up and out, the left one raised
+            Vector2[] hexB = (Vector2[])hexA.Clone();
+            hexB[1] = new Vector2(0.75f, 1f);
+            hexB[3] = new Vector2(-1f, 0.3f);
+            ProceduralShapeSpine s = Spine();
+            var snap = new Snapshot(s);
+            try
+            {
+                yield return Use(s, "ZzHexA", hexA, i => i == 1);
+                yield return Use(s, "ZzHexB", hexB, i => i == 2);
+                Vector2[] a = s._alignUnits[1], b = s._alignUnits[2];
+                List<Vector2> va = CrossSectionLibrary.Get("ZzHexA").verts, vb = CrossSectionLibrary.Get("ZzHexB").verts;
+                var at = new List<int>();
+                for (int v = 0; v < va.Count; v++)
+                {
+                    int j = System.Array.FindIndex(a, p => (p - va[v]).sqrMagnitude < 1e-6f);
+                    Assert.True(j >= 0, $"hexA vertex {v} is a ring point");
+                    at.Add(j);
+                }
+                // each of A's vertices meets one of B's, in the same order around
+                var hitB = at.Select(j => vb.FindIndex(p => (p - b[j]).sqrMagnitude < 1e-6f)).ToList();
+                ctx.Record("pairs", string.Join(" ", at.Zip(hitB, (j, v) => $"{j}:{v}")));
+                Assert.True(hitB.All(v => v >= 0), "every vertex of A pairs with a vertex of B");
+                for (int k = 1; k < hitB.Count; k++)
+                    Assert.True((hitB[k] - hitB[k - 1] + 6) % 6 == 1, $"in order around ({string.Join(",", hitB)})");
+            }
+            finally
+            {
+                snap.Restore();
+                Cleanup("ZzHexA", "ZzHexB");
+            }
+        }
     }
 }

@@ -17,7 +17,11 @@ A fuselage-like body lofted from a series of cross-section nodes along an axis, 
 in-scene gizmo. Added to every ProceduralParts part (pick it from the Shape selector).
 
 - Per-node cross-section: built-in Ellipse (with stretch), Rectangle (top/bottom fillets), Mk2,
-  Mk3, or any custom section. Sections morph point-for-point between adjacent nodes.
+  Mk3, or any custom section. Sections morph point-for-point between adjacent nodes. With custom
+  sections in the spine, the points pair by best fit, whatever each section's vertex count: matching
+  corners and edges morph into each other instead of twisting, every vertex stays exact (unless a
+  section has more than the part's points per section), and neighbours with the same vertex count
+  morph vertex to vertex.
 - Custom cross-sections: **Edit Cross Sections** in the PAW opens an editor. Pick a section, drag
   its vertices on the grid (snap and grid step optional; double-click an edge to add a vertex,
   right-click one to remove it), then Save, or Save As a new name. Drag the window's corner to

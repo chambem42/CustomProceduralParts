@@ -980,7 +980,10 @@ namespace CustomProceduralParts
         {
             EnsureNodes();
             SortNodes();
-            var rings = new List<Ring> { NodeRing(nodes[0]) };
+            Vector2[][] aligned = AlignedUnits();
+            Ring first = NodeRing(nodes[0]);
+            if (aligned != null) first.outline = Scaled(aligned[0], aligned[0], 0f, first.rH, first.rV);
+            var rings = new List<Ring> { first };
             for (int i = 1; i < nodes.Count; i++)
             {
                 SpineNode lo = nodes[i - 1], hi = nodes[i];
@@ -1016,13 +1019,75 @@ namespace CustomProceduralParts
                         offsetX = Mathf.Lerp(aOffX, bOffX, h),
                         tanTiltV = TiltTan(Mathf.Lerp(aTv, bTv, h)),
                         tanTiltH = TiltTan(Mathf.Lerp(aTh, bTh, h)),
-                        outline = RingOutline(loS, hiS, t, rH, rV,
-                                              lo.filletTop, lo.filletBottom, hi.filletTop, hi.filletBottom,
-                                              lo.stretch, hi.stretch, Sides),
+                        outline = aligned != null
+                            ? Scaled(aligned[i - 1], aligned[i], t, rH, rV)
+                            : RingOutline(loS, hiS, t, rH, rV,
+                                          lo.filletTop, lo.filletBottom, hi.filletTop, hi.filletBottom,
+                                          lo.stretch, hi.stretch, Sides),
                     });
                 }
             }
             return rings;
+        }
+
+        // A spine with any custom section pairs its rings' points by best fit (SectionAlignment): each node's unit
+        // outline sampled so point k sits on matching features all along, whatever the vertex counts. Built-in-only
+        // spines keep the built-ins' fixed layouts (which line up by construction), so they're unchanged. Cached on
+        // what the alignment depends on: the sections, a built-in's sliders, and the aspect where that shapes it.
+        private string _alignKey;
+        private Vector2[][] _alignUnits;
+
+        private Vector2[][] AlignedUnits()
+        {
+            if (nodes.TrueForAll(n => n.Section.IsBuiltIn)) { _alignKey = null; _alignUnits = null; return null; }
+            var key = new System.Text.StringBuilder().Append(Sides);
+            foreach (SpineNode n in nodes)
+            {
+                CrossSection s = n.Section;
+                key.Append('|').Append(s.Key);
+                if (s.IsBuiltIn)
+                {
+                    key.Append(',').Append(n.filletTop.ToString("F3")).Append(',').Append(n.filletBottom.ToString("F3"))
+                       .Append(',').Append(n.stretch.ToString("F3"));
+                    if (s.builtIn == SpineProfile.Rectangle || s.builtIn == SpineProfile.Mk3)
+                        key.Append(',').Append((AlignExtent(Erh(n)) / AlignExtent(Erv(n))).ToString("F3"));
+                }
+            }
+            string k = key.ToString();
+            if (k == _alignKey && _alignUnits != null) return _alignUnits;
+
+            var shapes = new List<SectionAlignment.Shape>(nodes.Count);
+            foreach (SpineNode n in nodes)
+            {
+                CrossSection s = n.Section;
+                if (!s.IsBuiltIn)
+                {
+                    shapes.Add(new SectionAlignment.Shape { poly = s.verts.ToArray() });
+                    continue;
+                }
+                // a built-in densely, back in the unit box (a rounded rectangle's corners depend on its aspect)
+                float a = AlignExtent(Erh(n)), b = AlignExtent(Erv(n));
+                Vector2[] o = s.Outline(a, b, n.filletTop, n.filletBottom, n.stretch, Mathf.Max(4 * Sides, 96));
+                for (int j = 0; j < o.Length; j++) o[j] = new Vector2(o[j].x / a, o[j].y / b);
+                shapes.Add(new SectionAlignment.Shape { poly = o, samplesOnly = true });
+            }
+            _alignUnits = SectionAlignment.Align(shapes, Sides);
+            _alignKey = k;
+            return _alignUnits;
+        }
+
+        private static float AlignExtent(float r) => Mathf.Max(r, 1e-3f);
+
+        // Unit outlines a and b lerped by t, scaled to rH x rV.
+        private static Vector2[] Scaled(Vector2[] a, Vector2[] b, float t, float rH, float rV)
+        {
+            var o = new Vector2[a.Length];
+            for (int j = 0; j < o.Length; j++)
+            {
+                Vector2 p = Vector2.Lerp(a[j], b[j], t);
+                o[j] = new Vector2(p.x * rH, p.y * rV);
+            }
+            return o;
         }
 
         // Radius blend across a segment, t in [0,1]. Maps the straight 0..1 chord into a curve.
@@ -2399,8 +2464,13 @@ namespace CustomProceduralParts
             var mesh = new UncheckedMesh(Sides * 2, (Sides - 2) * 2);
             WriteCapVertices(mesh, rings[0], 0, false);
             WriteCapVertices(mesh, rings[rings.Count - 1], Sides, true);
-            WriteCapTriangles(mesh, nodes[0].Section, false, 0, 0);
-            WriteCapTriangles(mesh, nodes[nodes.Count - 1].Section, true, Sides, Sides - 2);
+            // best-fit rings aren't the sections' own samplings: triangulate the end rings themselves (unit, so a
+            // zero-size end still has a shape to cut)
+            int[] lo = _alignUnits != null ? SectionGeometry.Triangulate(_alignUnits[0]) : nodes[0].Section.CapTriangles(Sides);
+            int[] hi = _alignUnits != null ? SectionGeometry.Triangulate(_alignUnits[_alignUnits.Length - 1])
+                                           : nodes[nodes.Count - 1].Section.CapTriangles(Sides);
+            WriteCapTriangles(mesh, lo, false, 0, 0);
+            WriteCapTriangles(mesh, hi, true, Sides, Sides - 2);
             WriteToAppropriateMesh(mesh, PPart.EndsIconMesh, EndsMesh);
         }
 
@@ -2448,10 +2518,9 @@ namespace CustomProceduralParts
         // Ear-clipped rather than a fan from vertex 0, so concave custom sections cap correctly. The end ring
         // is its node's section scaled, so the section's cached triangulation fits. It's CCW in outline
         // space; the top cap reverses it to face +Y.
-        private void WriteCapTriangles(UncheckedMesh mesh, CrossSection section, bool up, int vertexOffset, int triOffset)
+        private void WriteCapTriangles(UncheckedMesh mesh, int[] tri, bool up, int vertexOffset, int triOffset)
         {
             int tio = triOffset * 3;
-            int[] tri = section.CapTriangles(Sides);
             for (int i = 0; i < Sides - 2; i++)
             {
                 mesh.triangles[i * 3 + tio] = tri[i * 3] + vertexOffset;
