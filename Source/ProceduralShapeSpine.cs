@@ -2576,7 +2576,10 @@ namespace CustomProceduralParts
                 Ring ring = rings[r];
                 List<int> pts = ColliderPoints(ring.outline);
                 for (int j = 0; j < ColliderSides; j++)
-                    mesh.vertices[r * per + j] = RingV(ring, pts[j % pts.Count]);   // a short hull repeats points
+                    // a short hull repeats points in order, so the ring still goes round once (the padding makes
+                    // zero-area triangles); wrapping round it again would fold the mesh over itself, which a
+                    // convex collider never shows but anything reading the triangles does
+                    mesh.vertices[r * per + j] = RingV(ring, pts[j * pts.Count / ColliderSides]);
             }
 
             int t = 0;
