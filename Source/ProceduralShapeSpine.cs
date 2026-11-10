@@ -2529,9 +2529,48 @@ namespace CustomProceduralParts
             }
         }
 
-        // The outline points a ring gives the collider. It's one convex hull, so only the outline's hull
-        // matters (concave notches can't), thinned to ColliderSides by dropping the hull points that cost the
-        // least area -- corners and tips of a custom section survive, wherever they fall in the outline.
+        // The outline points every ring gives the collider: the same ones on each ring (the rings' outlines are
+        // aligned point for point, so ring point k is the same feature all along and the collider's faces follow
+        // the loft's), thinned to ColliderSides by dropping the point whose triangle with its neighbours costs the
+        // least area summed over the rings. The section's own shape, concave or not: physics takes the convex hull
+        // of the whole collider anyway (it's convex), but whatever reads its triangles (FAR's aero and water
+        // forces) sees the hollow of a V, a step or a notch rather than a hull bridged across it.
+        // Null when the rings don't share a point count (then each ring gives its own hull).
+        private static List<int> SharedColliderPoints(List<Ring> rings)
+        {
+            int n = rings[0].outline.Length;
+            if (n <= ColliderSides || rings.Any(r => r.outline == null || r.outline.Length != n)) return null;
+            var idx = Enumerable.Range(0, n).ToList();
+            float Cost(int k)
+            {
+                int c = idx.Count, a = idx[(k + c - 1) % c], b = idx[k], d = idx[(k + 1) % c];
+                float sum = 0f;
+                foreach (Ring r in rings)
+                {
+                    Vector2 pa = r.outline[a], pb = r.outline[b], pd = r.outline[d];
+                    sum += Mathf.Abs((pb.x - pa.x) * (pd.y - pa.y) - (pb.y - pa.y) * (pd.x - pa.x));
+                }
+                return sum;
+            }
+            var cost = Enumerable.Range(0, n).Select(Cost).ToList();
+            while (idx.Count > ColliderSides)
+            {
+                int drop = 0;
+                for (int k = 1; k < idx.Count; k++)
+                    if (cost[k] < cost[drop]) drop = k;
+                idx.RemoveAt(drop);
+                cost.RemoveAt(drop);
+                int c = idx.Count;
+                int before = (drop + c - 1) % c, after = drop % c;
+                cost[before] = Cost(before);
+                cost[after] = Cost(after);
+            }
+            return idx;
+        }
+
+        // One ring's points for the collider when the rings don't share a point count: its outline's hull,
+        // thinned to ColliderSides by dropping the hull points that cost the least area -- corners and tips of a
+        // custom section survive, wherever they fall in the outline.
         private static List<int> ColliderPoints(Vector2[] o)
         {
             var idx = Enumerable.Range(0, o.Length).OrderBy(i => o[i].x).ThenBy(i => o[i].y).ToList();
@@ -2571,12 +2610,13 @@ namespace CustomProceduralParts
             int capTris = shellMode ? 0 : (ColliderSides - 2) * 2;   // open ends in shell mode
             var mesh = new UncheckedMesh(rc * per, sideTris + capTris);
 
+            List<int> shared = SharedColliderPoints(rings);
             for (int r = 0; r < rc; r++)
             {
                 Ring ring = rings[r];
-                List<int> pts = ColliderPoints(ring.outline);
+                List<int> pts = shared ?? ColliderPoints(ring.outline);
                 for (int j = 0; j < ColliderSides; j++)
-                    // a short hull repeats points in order, so the ring still goes round once (the padding makes
+                    // a short list repeats points in order, so the ring still goes round once (the padding makes
                     // zero-area triangles); wrapping round it again would fold the mesh over itself, which a
                     // convex collider never shows but anything reading the triangles does
                     mesh.vertices[r * per + j] = RingV(ring, pts[j * pts.Count / ColliderSides]);
