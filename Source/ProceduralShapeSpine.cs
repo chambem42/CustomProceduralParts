@@ -2552,12 +2552,22 @@ namespace CustomProceduralParts
                 }
                 return sum;
             }
+            // the outline points a kept point k spans to its neighbours (1 and 1: none dropped beside it yet)
+            int Spread(int k)
+            {
+                int c = idx.Count;
+                return Mathf.Max((idx[k] - idx[(k + c - 1) % c] + n) % n, (idx[(k + 1) % c] - idx[k] + n) % n);
+            }
             var cost = Enumerable.Range(0, n).Select(Cost).ToList();
             while (idx.Count > ColliderSides)
             {
-                int drop = 0;
-                for (int k = 1; k < idx.Count; k++)
-                    if (cost[k] < cost[drop]) drop = k;
+                // the cheapest; of points costing the same (a round section's all do), the one with the closest
+                // neighbours, so a uniform outline thins to every other point and stays regular and symmetric
+                float least = cost.Min(), tie = least + 1e-4f * Mathf.Max(least, 1e-9f);
+                int drop = -1;
+                for (int k = 0; k < idx.Count; k++)
+                    if (cost[k] <= tie && (drop < 0 || Spread(k) < Spread(drop)))
+                        drop = k;
                 idx.RemoveAt(drop);
                 cost.RemoveAt(drop);
                 int c = idx.Count;
