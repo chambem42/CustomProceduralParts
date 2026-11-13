@@ -3,6 +3,11 @@
 Extra shapes for [ProceduralParts](https://github.com/KSP-RO/ProceduralParts), shipped as a
 separate mod. Requires ProceduralParts and ModuleManager.
 
+
+
+https://github.com/user-attachments/assets/7f5f5706-9512-4fa2-8f38-de1a7377e339
+
+
 ## Install
 
 From CKAN (installs ProceduralParts and ModuleManager with it), or unzip a
