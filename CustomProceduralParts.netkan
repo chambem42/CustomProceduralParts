@@ -5,7 +5,6 @@ name: Custom Procedural Parts
 abstract: >-
   Extra shapes for Procedural Parts. Spine: a fuselage lofted through a chain of nodes, each with its
   own cross-section, drawn in an in-editor section editor.
-author: chambem42
 $kref: '#/ckan/github/chambem42/CustomProceduralParts'
 $vref: '#/ckan/ksp-avc'
 license: CC-BY-SA-3.0
