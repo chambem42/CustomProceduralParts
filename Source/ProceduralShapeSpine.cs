@@ -2531,16 +2531,124 @@ namespace CustomProceduralParts
 
         // The outline points every ring gives the collider: the same ones on each ring (the rings' outlines are
         // aligned point for point, so ring point k is the same feature all along and the collider's faces follow
-        // the loft's), thinned to ColliderSides by dropping the point whose triangle with its neighbours costs the
-        // least area summed over the rings. The section's own shape, concave or not: physics takes the convex hull
-        // of the whole collider anyway (it's convex), but whatever reads its triangles (FAR's aero and water
-        // forces) sees the hollow of a V, a step or a notch rather than a hull bridged across it.
+        // the loft's). The section's own shape, concave or not: physics takes the convex hull of the whole collider
+        // anyway (it's convex), but whatever reads its triangles (FAR's aero and water forces) sees the hollow of a
+        // V, a step or a notch rather than a hull bridged across it. Its corners (ComputeHardColumns) are kept; the
+        // rest of ColliderSides are spread evenly by arc length (the rings' mean) over the stretches between them,
+        // each stretch its share by length -- a round section (no corners: point 0 anchors it) thins to evenly
+        // spaced points, mirror-symmetric about point 0 when the section is.
         // Null when the rings don't share a point count (then each ring gives its own hull).
         private static List<int> SharedColliderPoints(List<Ring> rings)
         {
+            if (rings.Count == 0 || rings[0].outline == null) return null;
             int n = rings[0].outline.Length;
             if (n <= ColliderSides || rings.Any(r => r.outline == null || r.outline.Length != n)) return null;
-            var idx = Enumerable.Range(0, n).ToList();
+
+            // arc length position of each point, 0..1 round the outline ([n] = 1), the rings' mean
+            var s = new float[n + 1];
+            int counted = 0;
+            foreach (Ring r in rings)
+            {
+                float perimeter = 0f;
+                for (int j = 0; j < n; j++) perimeter += (r.outline[(j + 1) % n] - r.outline[j]).magnitude;
+                if (perimeter < 1e-6f) continue;   // a zero-size end has no shape to weigh
+                float[] f = RingArcFractions(r);
+                for (int j = 0; j <= n; j++) s[j] += f[j];
+                counted++;
+            }
+            for (int j = 0; j <= n; j++) s[j] = counted > 0 ? s[j] / counted : (float)j / n;
+
+            List<int> corners = ColliderCorners(rings, n);
+            if (corners.Count == 0) corners.Add(0);
+            if (corners.Count >= ColliderSides)
+                return ThinByArea(rings, corners);
+
+            // each stretch (corner i to i+1, wrapping) its share of the rest: one at a time to the stretch whose
+            // spacing would stay the widest (its length over its points + 1), while it has outline points left
+            int nc = corners.Count;
+            var length = new float[nc];
+            var room = new int[nc];
+            var given = new int[nc];
+            for (int i = 0; i < nc; i++)
+            {
+                int a = corners[i], b = i + 1 < nc ? corners[i + 1] : corners[0] + n;
+                length[i] = s[b % n] + (b >= n ? 1f : 0f) - s[a];
+                room[i] = b - a - 1;
+            }
+            for (int left = ColliderSides - nc; left > 0; left--)
+            {
+                int best = -1;
+                for (int i = 0; i < nc; i++)
+                    if (given[i] < room[i] && (best < 0 || length[i] / (given[i] + 1) > length[best] / (given[best] + 1) + 1e-6f))
+                        best = i;
+                given[best]++;
+            }
+
+            var idx = new List<int>(ColliderSides);
+            for (int i = 0; i < nc; i++)
+            {
+                int a = corners[i], b = i + 1 < nc ? corners[i + 1] : corners[0] + n, m = given[i];
+                idx.Add(a);
+                if (m == 0) continue;
+                float U(int j) => s[j % n] + (j >= n ? 1f : 0f);
+                // each point nearest its even arc position (a tie to the nearer corner, so a symmetric stretch
+                // stays symmetric), then kept in order and apart
+                var pick = new int[m];
+                for (int q = 1; q <= m; q++)
+                {
+                    float target = s[a] + length[i] * q / (m + 1);
+                    bool firstHalf = 2 * q <= m + 1;
+                    int bestJ = -1;
+                    float bestD = float.MaxValue;
+                    for (int step = 0; step < b - a - 1; step++)
+                    {
+                        int j = firstHalf ? a + 1 + step : b - 1 - step;
+                        float d = Mathf.Abs(U(j) - target);
+                        if (d < bestD - 1e-6f) { bestD = d; bestJ = j; }
+                    }
+                    pick[q - 1] = bestJ;
+                }
+                for (int q = 0; q < m; q++) pick[q] = Math.Max(pick[q], q > 0 ? pick[q - 1] + 1 : a + 1);
+                for (int q = m - 1; q >= 0; q--) pick[q] = Math.Min(pick[q], q < m - 1 ? pick[q + 1] - 1 : b - 1);
+                foreach (int j in pick) idx.Add(j % n);
+            }
+            // in outline order from the lowest index (corner 0's stretch may wrap past n)
+            int lowest = idx.IndexOf(idx.Min());
+            return idx.Skip(lowest).Concat(idx.Take(lowest)).ToList();
+        }
+
+        // The outline points where any ring turns sharply (as ComputeHardColumns, 30 deg), each against the nearest
+        // points either side that differ from it: a resampled outline can hold a corner twice (ResampleWithCorners
+        // puts a filler on it), and the copies' zero-length edge hides the turn from a neighbour-to-neighbour test.
+        // Of a point repeated, the first copy counts.
+        private static List<int> ColliderCorners(List<Ring> rings, int n)
+        {
+            const float eps2 = 1e-10f, thresholdDeg = 30f;
+            var hard = new bool[n];
+            foreach (Ring r in rings)
+            {
+                Vector2[] o = r.outline;
+                for (int j = 0; j < n; j++)
+                {
+                    if (hard[j] || (o[j] - o[(j + n - 1) % n]).sqrMagnitude < eps2) continue;
+                    int p = j - 1, q = j + 1;
+                    while (p > j - n && (o[((p % n) + n) % n] - o[j]).sqrMagnitude < eps2) p--;
+                    while (q < j + n && (o[q % n] - o[j]).sqrMagnitude < eps2) q++;
+                    Vector2 a = o[j] - o[((p % n) + n) % n], b = o[q % n] - o[j];
+                    if (a.sqrMagnitude < eps2 || b.sqrMagnitude < eps2) continue;
+                    if (Vector2.Angle(a, b) > thresholdDeg) hard[j] = true;
+                }
+            }
+            var corners = new List<int>();
+            for (int j = 0; j < n; j++) if (hard[j]) corners.Add(j);
+            return corners;
+        }
+
+        // More corners than ColliderSides: drop the corner whose triangle with its neighbours costs the least area
+        // summed over the rings, till ColliderSides are left
+        private static List<int> ThinByArea(List<Ring> rings, List<int> idx)
+        {
+            idx = new List<int>(idx);
             float Cost(int k)
             {
                 int c = idx.Count, a = idx[(k + c - 1) % c], b = idx[k], d = idx[(k + 1) % c];
@@ -2552,28 +2660,16 @@ namespace CustomProceduralParts
                 }
                 return sum;
             }
-            // the outline points a kept point k spans to its neighbours (1 and 1: none dropped beside it yet)
-            int Spread(int k)
-            {
-                int c = idx.Count;
-                return Mathf.Max((idx[k] - idx[(k + c - 1) % c] + n) % n, (idx[(k + 1) % c] - idx[k] + n) % n);
-            }
-            var cost = Enumerable.Range(0, n).Select(Cost).ToList();
             while (idx.Count > ColliderSides)
             {
-                // the cheapest; of points costing the same (a round section's all do), the one with the closest
-                // neighbours, so a uniform outline thins to every other point and stays regular and symmetric
-                float least = cost.Min(), tie = least + 1e-4f * Mathf.Max(least, 1e-9f);
-                int drop = -1;
+                int drop = 0;
+                float least = float.MaxValue;
                 for (int k = 0; k < idx.Count; k++)
-                    if (cost[k] <= tie && (drop < 0 || Spread(k) < Spread(drop)))
-                        drop = k;
+                {
+                    float c = Cost(k);
+                    if (c < least) { least = c; drop = k; }
+                }
                 idx.RemoveAt(drop);
-                cost.RemoveAt(drop);
-                int c = idx.Count;
-                int before = (drop + c - 1) % c, after = drop % c;
-                cost[before] = Cost(before);
-                cost[after] = Cost(after);
             }
             return idx;
         }
