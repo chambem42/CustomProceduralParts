@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace CustomProceduralParts
 {
-    // One Spine cross-section. Built-ins are the parametric profiles (fillet / stretch sliders apply);
+    // One Spine cross-section. Built-ins are the parametric profiles (scaled to the node);
     // customs are user polygons in the unit box [-1,1]^2 (x = width, y = height), CCW, every vertex
     // kept as a corner. Either way Outline() returns the part's points per section (n, at least the
     // vertex cap), starting near +x and running CCW, so any two sections morph point-for-point along a
@@ -31,7 +31,7 @@ namespace CustomProceduralParts
         {
             if (n == UnitOutline.Length) return UnitOutline;
             if (!_units.TryGetValue(n, out Vector2[] u))
-                _units[n] = u = builtIn.HasValue ? ProceduralShapeSpine.ProfileOutline(builtIn.Value, 1f, 1f, 0f, 0f, 0f, n)
+                _units[n] = u = builtIn.HasValue ? ProceduralShapeSpine.ProfileOutline(builtIn.Value, 1f, 1f, n)
                                                  : SectionGeometry.Resample(verts, n);
             return u;
         }
@@ -45,7 +45,7 @@ namespace CustomProceduralParts
             this.verts = verts;
             if (builtIn.HasValue)
             {
-                UnitOutline = ProceduralShapeSpine.ProfileOutline(builtIn.Value, 1f, 1f, 0f, 0f, 0f, ProceduralShapeSpine.MinSides);
+                UnitOutline = ProceduralShapeSpine.ProfileOutline(builtIn.Value, 1f, 1f, ProceduralShapeSpine.MinSides);
                 Key = name;
             }
             else
@@ -59,11 +59,11 @@ namespace CustomProceduralParts
         public static CrossSection BuiltIn(SpineProfile p) => new CrossSection(p.ToString(), p, null);
         public static CrossSection Custom(string name, List<Vector2> verts) => new CrossSection(name, null, new List<Vector2>(verts));
 
-        // n-point outline scaled to half-extents rH x rV. Fillets / stretch only affect built-ins.
-        public Vector2[] Outline(float rH, float rV, float filletTop, float filletBottom, float stretch, int n)
+        // n-point outline scaled to half-extents rH x rV.
+        public Vector2[] Outline(float rH, float rV, int n)
         {
             if (builtIn.HasValue)
-                return ProceduralShapeSpine.ProfileOutline(builtIn.Value, rH, rV, filletTop, filletBottom, stretch, n);
+                return ProceduralShapeSpine.ProfileOutline(builtIn.Value, rH, rV, n);
             Vector2[] u = Unit(n);
             var o = new Vector2[u.Length];
             for (int j = 0; j < u.Length; j++) o[j] = new Vector2(u[j].x * rH, u[j].y * rV);
@@ -71,7 +71,7 @@ namespace CustomProceduralParts
         }
 
         // End-cap triangulation of the n-point outline (indices into it, CCW). Scaling by positive rH / rV keeps
-        // it valid, and built-ins are convex, where any triangulation fits every fillet / stretch variant.
+        // it valid, and built-ins are convex.
         public int[] CapTriangles(int n)
         {
             if (!_capTris.TryGetValue(n, out int[] t)) _capTris[n] = t = SectionGeometry.Triangulate(Unit(n));
@@ -427,6 +427,57 @@ namespace CustomProceduralParts
         }
 
         private static bool Same(Vector2 a, Vector2 b) => (a - b).sqrMagnitude <= 1e-12f;
+
+        // Straight-middle stretch: the polygon cut at the middle of its box along one axis (x for s > 0, y for s < 0),
+        // the halves pulled apart by |s| of its extent there with straight runs across the gap, then fitted back into
+        // the same box. A circle at s = 1 becomes a stadium twice as wide as tall, squeezed back to the circle's box:
+        // flat top and bottom (s > 0) or flat sides (s < 0). Points on the cut stay where they are, on the side
+        // their neighbours are.
+        public static List<Vector2> StretchMiddle(IList<Vector2> p, float s)
+        {
+            int n = p.Count;
+            if (n < 3 || s == 0f) return new List<Vector2>(p);
+            int ax = s > 0f ? 0 : 1;
+            float min = p[0][ax], max = min;
+            foreach (Vector2 v in p) { min = Mathf.Min(min, v[ax]); max = Mathf.Max(max, v[ax]); }
+            float c = 0.5f * (min + max), ext = max - min, half = 0.5f * Mathf.Abs(s) * ext, eps = 1e-6f * Mathf.Max(ext, 1e-3f);
+            if (ext <= 0f) return new List<Vector2>(p);
+            int Side(Vector2 v) => v[ax] > c + eps ? 1 : v[ax] < c - eps ? -1 : 0;
+            int Off(int i, int step)   // the side of the nearest vertex off the cut, walking from i
+            {
+                for (int k = 1; k < n; k++) { int sd = Side(p[((i + step * k) % n + n) % n]); if (sd != 0) return sd; }
+                return 1;
+            }
+            float squeeze = ext / (ext + 2f * half);
+            Vector2 Put(Vector2 v, int side)
+            {
+                v[ax] = c + (v[ax] + side * half - c) * squeeze;
+                return v;
+            }
+            var o = new List<Vector2>(n + 4);
+            void Add(Vector2 v) { if (o.Count == 0 || !Same(o[o.Count - 1], v)) o.Add(v); }
+            for (int i = 0; i < n; i++)
+            {
+                Vector2 a = p[i], b = p[(i + 1) % n];
+                int sa = Side(a), sb = Side(b);
+                if (sa != 0) Add(Put(a, sa));
+                else
+                {
+                    int sIn = Off(i, -1), sOut = Off(i, 1);
+                    Add(Put(a, sIn));
+                    if (sOut != sIn) Add(Put(a, sOut));
+                }
+                if (sa * sb < 0)
+                {
+                    Vector2 q = Vector2.Lerp(a, b, (c - a[ax]) / (b[ax] - a[ax]));
+                    q[ax] = c;
+                    Add(Put(q, sa));
+                    Add(Put(q, sb));
+                }
+            }
+            if (o.Count > 1 && Same(o[0], o[o.Count - 1])) o.RemoveAt(o.Count - 1);
+            return o;
+        }
 
         // Ear-clipping triangulation of a simple CCW polygon: (n-2) triangles, each CCW. Duplicate points and
         // points along a straight run are clipped first as zero-area triangles, and a point coincident with a

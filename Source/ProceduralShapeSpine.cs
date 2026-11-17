@@ -32,9 +32,6 @@ namespace CustomProceduralParts
         [Persistent] public float offsetH = 0f;      // horizontal centre offset (m), before hScale
         [Persistent] public float tiltV = 0f;        // vertical tilt (deg): +ve pitches the top of the ring forward (+spine)
         [Persistent] public float tiltH = 0f;        // horizontal tilt (deg): +ve yaws the right of the ring forward (+spine)
-        [Persistent] public float filletTop = 0f;    // top corner rounding, 0..1 of the half-min-extent
-        [Persistent] public float filletBottom = 0f; // bottom corner rounding, 0..1
-        [Persistent] public float stretch = 0f;      // ellipse only: 0 = true ellipse, 1 = flat faces on the longer axis (toward a rectangle)
         [Persistent] public string section = nameof(SpineProfile.Ellipse);   // CrossSectionLibrary name
         [Persistent] public SpineSlope slopeAbove = SpineSlope.Linear;
 
@@ -54,8 +51,7 @@ namespace CustomProceduralParts
         public SpineNode Clone() => new SpineNode
         {
             position = position, sizeH = sizeH, sizeV = sizeV, offsetV = offsetV, offsetH = offsetH,
-            tiltV = tiltV, tiltH = tiltH, filletTop = filletTop, filletBottom = filletBottom,
-            stretch = stretch,
+            tiltV = tiltV, tiltH = tiltH,
             section = section, slopeAbove = slopeAbove, pinned = pinned,
         };
     }
@@ -82,14 +78,6 @@ namespace CustomProceduralParts
         [KSPField(isPersistant = true, guiActiveEditor = true, guiName = "Height scale", guiFormat = "F3", groupName = ProceduralPart.PAWGroupName),
             UI_FloatEdit(scene = UI_Scene.Editor, incrementSlide = SliderPrecision, sigFigs = 3)]
         public float vScale = 1f;
-
-        // Lifting body: when on, drives the part's stock ModuleLiftingSurface from the planform area so
-        // the body generates lift. (With FAR installed, FAR voxel aero supersedes ModuleLiftingSurface.)
-        // affectSymCounterparts is None: OnAirfoilChanged propagates to counterparts manually. Letting the
-        // stock All fan-out also fire would double-apply and trigger N^2 rebuilds across the symmetry group.
-        [KSPField(isPersistant = true, guiActiveEditor = true, guiName = "Airfoil", groupName = ProceduralPart.PAWGroupName),
-            UI_Toggle(scene = UI_Scene.Editor, enabledText = "On", disabledText = "Off", affectSymCounterparts = UI_Scene.None)]
-        public bool airfoil = false;
 
         // Shell: open both ends and drop the solid interior (a thin skin) -- for custom shrouds / shields.
         // affectSymCounterparts None: the onFieldChanged -> RebuildAndPropagate -> SyncToSymmetry path
@@ -186,21 +174,6 @@ namespace CustomProceduralParts
         [KSPField(isPersistant = false, guiActiveEditor = true, guiName = "Node width offset", guiFormat = "F3", guiUnits = "m", groupName = ProceduralPart.PAWGroupName),
             UI_FloatEdit(scene = UI_Scene.Editor, minValue = -10f, maxValue = 10f, incrementLarge = 0.5f, incrementSmall = 0.1f, incrementSlide = SliderPrecision, sigFigs = 3, unit = "m", affectSymCounterparts = UI_Scene.None)]
         public float nodeOffsetH = 0f;
-
-        // Rectangle: independent top/bottom corner rounding (0 = sharp). Shown only for Rectangle.
-        [KSPField(isPersistant = false, guiActiveEditor = true, guiName = "Top fillet", guiFormat = "F2", groupName = ProceduralPart.PAWGroupName),
-            UI_FloatRange(minValue = 0f, maxValue = 1f, stepIncrement = 0.05f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.None)]
-        public float nodeFilletTop = 0f;
-
-        [KSPField(isPersistant = false, guiActiveEditor = true, guiName = "Bottom fillet", guiFormat = "F2", groupName = ProceduralPart.PAWGroupName),
-            UI_FloatRange(minValue = 0f, maxValue = 1f, stepIncrement = 0.05f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.None)]
-        public float nodeFilletBottom = 0f;
-
-        // Ellipse: flatten the faces toward a rectangle (0 = true ellipse, 1 = flat wall). Applies to the
-        // longer axis's faces (they're congruent for a circle, so a single slider covers both). Ellipse only.
-        [KSPField(isPersistant = false, guiActiveEditor = true, guiName = "Stretch", guiFormat = "F2", groupName = ProceduralPart.PAWGroupName),
-            UI_FloatRange(minValue = 0f, maxValue = 1f, stepIncrement = 0.05f, scene = UI_Scene.Editor, affectSymCounterparts = UI_Scene.None)]
-        public float nodeStretch = 0f;
 
         [KSPEvent(guiActiveEditor = true, guiName = "Add node in front", groupName = ProceduralPart.PAWGroupName)]
         public void AddNodeInFrontEvent() => AddNode(true);
@@ -351,8 +324,6 @@ namespace CustomProceduralParts
                 foreach (SpineNode n in nodes)
                     sb.Append('|').Append(n.position).Append(',').Append(n.sizeH).Append(',').Append(n.sizeV)
                       .Append(',').Append(n.offsetV).Append(',').Append(n.offsetH).Append(',').Append(n.tiltV).Append(',').Append(n.tiltH)
-                      .Append(',').Append(n.filletTop).Append(',').Append(n.filletBottom)
-                      .Append(',').Append(n.stretch)
                       .Append(',').Append(n.Section.Key).Append(',').Append((int)n.slopeAbove);
                 return sb.ToString();
             }
@@ -471,10 +442,6 @@ namespace CustomProceduralParts
                 Fields[nameof(nodePos)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
                 Fields[nameof(nodeOffsetV)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
                 Fields[nameof(nodeOffsetH)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
-                Fields[nameof(nodeFilletTop)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
-                Fields[nameof(nodeFilletBottom)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
-                Fields[nameof(nodeStretch)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
-                Fields[nameof(airfoil)].uiControlEditor.onFieldChanged = (f, o) => OnAirfoilChanged();
                 Fields[nameof(shellMode)].uiControlEditor.onFieldChanged = (f, o) => { UpdateShellVisibility(); RebuildAndPropagate(); };
                 Fields[nameof(shellThickness)].uiControlEditor.onFieldChanged = (f, o) => RebuildAndPropagate();
 
@@ -542,10 +509,6 @@ namespace CustomProceduralParts
         // re-entering and recursively mangling the node sizes (it was a stack overflow / crash).
         private bool _rebuilding;
 
-        // Top-view planform area (m^2), integrated from the rings; drives the lifting-surface coeff.
-        private float _planformArea;
-        private const float PlanformLiftFactor = 1f;   // deflectionLiftCoeff per m^2 of planform
-
         public override void UpdateShape(bool force = true)
         {
             Profiler.BeginSample("UpdateShape Spine");
@@ -584,9 +547,6 @@ namespace CustomProceduralParts
             UpdateNodeSize(BottomNodeName, EndDiameter(0));
             UpdateNodeSize(TopNodeName, EndDiameter(rings.Count - 1));
 
-            _planformArea = PlanformArea(rings);
-            ApplyLiftingSurface();
-
             // Set volume last (the setter fires OnPartVolumeChanged / onEditorShipModified) so the
             // visible mesh is already updated even if a volume listener throws.
             NominalVolume = CalculateVolume(rings);
@@ -618,15 +578,12 @@ namespace CustomProceduralParts
             return new Vector3(p.x + ring.offsetX, y, p.y + ring.offsetZ);
         }
 
-        // Sides-point outline of a ring, morphing section pa->pb by blend, scaled to rH x rV, with the
-        // top/bottom fillet fractions also blended (a..b) for the rounded-rect profiles.
-        private static Vector2[] RingOutline(CrossSection pa, CrossSection pb, float blend,
-                                             float rH, float rV, float ftA, float fbA, float ftB, float fbB,
-                                             float sA, float sB, int n)
+        // Sides-point outline of a ring, morphing section pa->pb by blend, scaled to rH x rV.
+        private static Vector2[] RingOutline(CrossSection pa, CrossSection pb, float blend, float rH, float rV, int n)
         {
-            Vector2[] a = pa.Outline(rH, rV, ftA, fbA, sA, n);
-            if (blend <= 0f || (pa == pb && ftA == ftB && fbA == fbB && sA == sB)) return a;
-            Vector2[] b = pb.Outline(rH, rV, ftB, fbB, sB, n);
+            Vector2[] a = pa.Outline(rH, rV, n);
+            if (blend <= 0f || pa == pb) return a;
+            Vector2[] b = pb.Outline(rH, rV, n);
             var o = new Vector2[n];
             for (int j = 0; j < n; j++) o[j] = Vector2.Lerp(a[j], b[j], blend);
             return o;
@@ -634,19 +591,13 @@ namespace CustomProceduralParts
 
         // Sides boundary points of a profile scaled to rH x rV. Each profile has a FIXED Sides-point
         // topology (its corners forced to vertices) so flats stay flat, corners stay crisp, and rings
-        // of the same profile loft with aligned edges. Rectangle and Mk3 are rounded rectangles whose
-        // corner radii come from the top/bottom fillet fractions (0 = sharp corner).
-        internal static Vector2[] ProfileOutline(SpineProfile profile, float rH, float rV, float ftFrac, float fbFrac,
-                                                 float stretch, int n)
+        // of the same profile loft with aligned edges.
+        internal static Vector2[] ProfileOutline(SpineProfile profile, float rH, float rV, int n)
         {
             switch (profile)
             {
-                case SpineProfile.Rectangle: return BuildRoundedRect(rH, rV, ftFrac, fbFrac, n);
+                case SpineProfile.Rectangle: return BuildRect(rH, rV, n);
                 case SpineProfile.Mk3: return BuildMk3Outline(rH, rV, n);
-                case SpineProfile.Mk2: break;
-                default: // Ellipse: flatten toward a rectangle (superellipse) if the stretch slider is non-zero.
-                    if (stretch > 0f) return BuildStretchedEllipse(rH, rV, stretch, n);
-                    break;
             }
 
             Vector2[] unit = (profile == SpineProfile.Mk2) ? UnitMk2(n) : UnitCircle(n);   // Mk2 / plain Ellipse
@@ -656,61 +607,14 @@ namespace CustomProceduralParts
             return o;
         }
 
-        // Ellipse with the faces flattened toward a rectangle -- a superellipse sampled at the same uniform
-        // angles as UnitCircle (so it lofts/blends point-for-point with plain-ellipse and other-profile
-        // neighbours). Exponent e: 1 = true ellipse, ->0 flattens a face into a flat wall. The flattening is
-        // applied to the LONGER axis's end faces (left/right when wider, top/bottom when taller) -- for a
-        // circle the two are congruent, so one slider covers both; the shorter axis stays elliptical.
-        private static Vector2[] BuildStretchedEllipse(float rH, float rV, float stretch, int n)
+        // Rectangle: half-extents (rH, rV), its 4 corners forced sharp, starting mid right edge.
+        private static Vector2[] BuildRect(float rH, float rV, int n)
         {
-            float e = SquarenessToExp(stretch);
-            bool wide = rH >= rV;
-            float eH = wide ? e : 1f;   // wide  -> flatten the left/right sides (x-faces)
-            float eV = wide ? 1f : e;   // tall  -> flatten the top/bottom (y-faces)
-            var o = new Vector2[n];
-            for (int j = 0; j < n; j++)
+            var pts = new List<Vector2>
             {
-                float a = 2f * Mathf.PI * j / n;
-                float c = Mathf.Cos(a), s = Mathf.Sin(a);
-                o[j] = new Vector2(Mathf.Sign(c) * Mathf.Pow(Mathf.Abs(c), eH) * rH,
-                                   Mathf.Sign(s) * Mathf.Pow(Mathf.Abs(s), eV) * rV);
-            }
-            return o;
-        }
-
-        // Map a 0..1 stretch slider to a superellipse exponent: 0 -> 1 (true ellipse), 1 -> near 0 (flat wall).
-        private static float SquarenessToExp(float sq) => Mathf.Lerp(1f, 0.08f, Mathf.Clamp01(sq));
-
-        // Rounded rectangle: half-extents (rH, rV), independent top/bottom corner radii from the fillet
-        // fractions (of the smaller half-extent). Tangent points are forced so the flats stay flat; the
-        // fillet arcs are sampled smoothly. Fillet 0 -> a forced sharp corner.
-        private static Vector2[] BuildRoundedRect(float rH, float rV, float ftFrac, float fbFrac, int n)
-        {
-            float m = Mathf.Min(rH, rV);
-            float tr = Mathf.Clamp01(ftFrac) * m;
-            float br = Mathf.Clamp01(fbFrac) * m;
-            var pts = new List<Vector2>();
-            var corners = new List<int>();
-            pts.Add(new Vector2(rH, 0f));                                                          // index 0: mid right edge
-            AddFillet(pts, corners, new Vector2(rH - tr, rV - tr), tr, 0f, 90f, new Vector2(rH, rV));      // top-right
-            AddFillet(pts, corners, new Vector2(-(rH - tr), rV - tr), tr, 90f, 180f, new Vector2(-rH, rV)); // top-left
-            AddFillet(pts, corners, new Vector2(-(rH - br), -(rV - br)), br, 180f, 270f, new Vector2(-rH, -rV)); // bottom-left
-            AddFillet(pts, corners, new Vector2(rH - br, -(rV - br)), br, 270f, 360f, new Vector2(rH, -rV));     // bottom-right
-            return ResampleWithCorners(pts, corners, n);
-        }
-
-        // Append one corner: a quarter arc of `radius` about `center` (left smooth so arc-length sampling
-        // rounds it evenly), or a single forced-sharp point when the radius is ~0.
-        private static void AddFillet(List<Vector2> pts, List<int> corners, Vector2 center, float radius,
-                                      float startDeg, float endDeg, Vector2 sharp)
-        {
-            if (radius < 1e-4f) { corners.Add(pts.Count); pts.Add(sharp); return; }
-            const int steps = 8;
-            for (int i = 0; i <= steps; i++)
-            {
-                float a = Mathf.Deg2Rad * Mathf.Lerp(startDeg, endDeg, (float)i / steps);
-                pts.Add(center + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * radius);
-            }
+                new Vector2(rH, 0f), new Vector2(rH, rV), new Vector2(-rH, rV), new Vector2(-rH, -rV), new Vector2(rH, -rV),
+            };
+            return ResampleWithCorners(pts, new List<int> { 1, 2, 3, 4 }, n);
         }
 
         // Mk3: a vertical circle (radius = rV) with its left/right sides sliced off flat at x = +/-rH, so
@@ -968,8 +872,7 @@ namespace CustomProceduralParts
             {
                 y = NodeY(n), rH = rH, rV = rV, offsetZ = Eoff(n), offsetX = EoffH(n),
                 tanTiltV = TiltTan(n.tiltV), tanTiltH = TiltTan(n.tiltH),
-                outline = RingOutline(n.Section, n.Section, 0f, rH, rV, n.filletTop, n.filletBottom, n.filletTop, n.filletBottom,
-                                      n.stretch, n.stretch, Sides),
+                outline = RingOutline(n.Section, n.Section, 0f, rH, rV, Sides),
             };
         }
 
@@ -993,15 +896,7 @@ namespace CustomProceduralParts
                 float aTv = lo.tiltV, bTv = hi.tiltV, aTh = lo.tiltH, bTh = hi.tiltH;
                 SpineSlope slope = lo.slopeAbove;
                 CrossSection loS = lo.Section, hiS = hi.Section;
-                // Fillets only change the outline for Rectangle, so a fillet difference only forces
-                // subdivision when both ends are rectangles (other sections ignore the fillet values).
-                bool filletMorph = loS.builtIn == SpineProfile.Rectangle && hiS.builtIn == SpineProfile.Rectangle
-                                   && (lo.filletTop != hi.filletTop || lo.filletBottom != hi.filletBottom);
-                // Likewise a stretch difference between two ellipses only bends the silhouette, so it also
-                // needs subdivision to morph smoothly.
-                bool stretchMorph = loS.builtIn == SpineProfile.Ellipse && hiS.builtIn == SpineProfile.Ellipse
-                                    && lo.stretch != hi.stretch;
-                bool morph = loS != hiS || filletMorph || stretchMorph;
+                bool morph = loS != hiS;
                 int k = (slope == SpineSlope.Linear && !morph) ? 1 : 10;
                 for (int s = 1; s <= k; s++)
                 {
@@ -1021,9 +916,7 @@ namespace CustomProceduralParts
                         tanTiltH = TiltTan(Mathf.Lerp(aTh, bTh, h)),
                         outline = aligned != null
                             ? Scaled(aligned[i - 1], aligned[i], t, rH, rV)
-                            : RingOutline(loS, hiS, t, rH, rV,
-                                          lo.filletTop, lo.filletBottom, hi.filletTop, hi.filletBottom,
-                                          lo.stretch, hi.stretch, Sides),
+                            : RingOutline(loS, hiS, t, rH, rV, Sides),
                     });
                 }
             }
@@ -1033,7 +926,7 @@ namespace CustomProceduralParts
         // A spine with any custom section pairs its rings' points by best fit (SectionAlignment): each node's unit
         // outline sampled so point k sits on matching features all along, whatever the vertex counts. Built-in-only
         // spines keep the built-ins' fixed layouts (which line up by construction), so they're unchanged. Cached on
-        // what the alignment depends on: the sections, a built-in's sliders, and the aspect where that shapes it.
+        // what the alignment depends on: the sections, and a built-in's aspect where that shapes it.
         private string _alignKey;
         private Vector2[][] _alignUnits;
 
@@ -1045,13 +938,8 @@ namespace CustomProceduralParts
             {
                 CrossSection s = n.Section;
                 key.Append('|').Append(s.Key);
-                if (s.IsBuiltIn)
-                {
-                    key.Append(',').Append(n.filletTop.ToString("F3")).Append(',').Append(n.filletBottom.ToString("F3"))
-                       .Append(',').Append(n.stretch.ToString("F3"));
-                    if (s.builtIn == SpineProfile.Rectangle || s.builtIn == SpineProfile.Mk3)
-                        key.Append(',').Append((AlignExtent(Erh(n)) / AlignExtent(Erv(n))).ToString("F3"));
-                }
+                if (s.builtIn == SpineProfile.Rectangle || s.builtIn == SpineProfile.Mk3)
+                    key.Append(',').Append((AlignExtent(Erh(n)) / AlignExtent(Erv(n))).ToString("F3"));
             }
             string k = key.ToString();
             if (k == _alignKey && _alignUnits != null) return _alignUnits;
@@ -1067,7 +955,7 @@ namespace CustomProceduralParts
                 }
                 // a built-in densely, back in the unit box (a rounded rectangle's corners depend on its aspect)
                 float a = AlignExtent(Erh(n)), b = AlignExtent(Erv(n));
-                Vector2[] o = s.Outline(a, b, n.filletTop, n.filletBottom, n.stretch, Mathf.Max(4 * Sides, 96));
+                Vector2[] o = s.Outline(a, b, Mathf.Max(4 * Sides, 96));
                 for (int j = 0; j < o.Length; j++) o[j] = new Vector2(o[j].x / a, o[j].y / b);
                 shapes.Add(new SectionAlignment.Shape { poly = o, samplesOnly = true });
             }
@@ -1104,35 +992,6 @@ namespace CustomProceduralParts
         // Multiplicative pinch for the waisted profile (narrow in the middle), 1 otherwise.
         private static float WaistFactor(SpineSlope slope, float t) =>
             slope == SpineSlope.Waisted ? 1f - 0.35f * Mathf.Sin(Mathf.PI * t) : 1f;
-
-        // Top-view planform area: trapezoidal integral of the full width (2*rH) along the spine.
-        private static float PlanformArea(List<Ring> rings)
-        {
-            float area = 0f;
-            for (int i = 1; i < rings.Count; i++)
-            {
-                float w0 = 2f * rings[i - 1].rH, w1 = 2f * rings[i].rH;
-                area += 0.5f * (w0 + w1) * Mathf.Abs(rings[i].y - rings[i - 1].y);
-            }
-            return area;
-        }
-
-        // Drive the part's stock ModuleLiftingSurface from the planform: lift scales with area when the
-        // Airfoil toggle is on, zero when off. No-op if the part has no lifting-surface module.
-        private void ApplyLiftingSurface()
-        {
-            ModuleLiftingSurface ls = part.FindModuleImplementing<ModuleLiftingSurface>();
-            if (ls == null) return;
-            ls.deflectionLiftCoeff = airfoil ? Mathf.Max(0.01f, _planformArea * PlanformLiftFactor) : 0f;
-        }
-
-        // Toggling Airfoil doesn't change geometry, so just re-apply the coeff here and on counterparts.
-        private void OnAirfoilChanged()
-        {
-            ApplyLiftingSurface();
-            foreach (Part p in part.symmetryCounterparts)
-                if (FindAbstractShapeModule(p, this) is ProceduralShapeSpine pm) { pm.airfoil = airfoil; pm.ApplyLiftingSurface(); }
-        }
 
         // Bounding diameter of an end ring (used for stack node sizing).
         private float EndDiameter(int ringIndex)
@@ -1355,12 +1214,8 @@ namespace CustomProceduralParts
             nodeTiltH = n.tiltH;
             nodeOffsetV = n.offsetV;
             nodeOffsetH = n.offsetH;
-            nodeFilletTop = n.filletTop;
-            nodeFilletBottom = n.filletBottom;
-            nodeStretch = n.stretch;
             Fields[nameof(nodePos)].guiActiveEditor = !IsEndNode(SelIndex);   // end nodes are pinned fore/aft
             UpdateSizeFieldBounds();
-            UpdateProfileFieldVisibility(n.Section);
             UpdateAddButtons();
         }
 
@@ -1371,17 +1226,6 @@ namespace CustomProceduralParts
             float min = MinSizeFor(SelIndex);
             foreach (string fn in new[] { nameof(nodeWidth), nameof(nodeHeight) })
                 if (Fields[fn].uiControlEditor is UI_FloatEdit e) e.minValue = min;
-        }
-
-        // Section-specific sliders: the fillets only apply to the built-in Rectangle (corner rounding),
-        // the stretch slider only to the built-in Ellipse (face flattening). Custom sections have neither.
-        private void UpdateProfileFieldVisibility(CrossSection s)
-        {
-            bool rect = s.builtIn == SpineProfile.Rectangle;
-            Fields[nameof(nodeFilletTop)].guiActiveEditor = rect;
-            Fields[nameof(nodeFilletBottom)].guiActiveEditor = rect;
-            bool ellipse = s.builtIn == SpineProfile.Ellipse;
-            Fields[nameof(nodeStretch)].guiActiveEditor = ellipse;
         }
 
         // The shell-thickness slider only matters when the hollow shell is on.
@@ -1459,13 +1303,9 @@ namespace CustomProceduralParts
                     case nameof(nodeTiltH): n.tiltH = nodeTiltH = Mathf.Clamp(nodeTiltH, -60f, 60f); break;
                     case nameof(nodeOffsetV): n.offsetV = nodeOffsetV = Mathf.Clamp(nodeOffsetV, -10f, 10f); break;
                     case nameof(nodeOffsetH): n.offsetH = nodeOffsetH = Mathf.Clamp(nodeOffsetH, -10f, 10f); break;
-                    case nameof(nodeFilletTop): n.filletTop = nodeFilletTop = Mathf.Clamp01(nodeFilletTop); break;
-                    case nameof(nodeFilletBottom): n.filletBottom = nodeFilletBottom = Mathf.Clamp01(nodeFilletBottom); break;
-                    case nameof(nodeStretch): n.stretch = nodeStretch = Mathf.Clamp01(nodeStretch); break;
                     case nameof(nodeProfileOpt):
                         AssignSection(n, AvailableSections().FirstOrDefault(s => s.name == nodeProfileOpt)
                                          ?? CrossSectionLibrary.Resolve(nodeProfileOpt));
-                        UpdateProfileFieldVisibility(n.Section);
                         FollowSelected();
                         MonoUtilities.RefreshPartContextWindow(part);
                         break;
@@ -1495,7 +1335,7 @@ namespace CustomProceduralParts
             }
         }
 
-        private static string Dump(SpineNode n) => $"[pos={n.position:F3} H={n.sizeH:F3} V={n.sizeV:F3} off={n.offsetV:F3}/{n.offsetH:F3} tilt={n.tiltV:F1}/{n.tiltH:F1} fil={n.filletTop:F2}/{n.filletBottom:F2} str={n.stretch:F2} sec={n.section} slope={n.slopeAbove}]";
+        private static string Dump(SpineNode n) => $"[pos={n.position:F3} H={n.sizeH:F3} V={n.sizeV:F3} off={n.offsetV:F3}/{n.offsetH:F3} tilt={n.tiltV:F1}/{n.tiltH:F1} sec={n.section} slope={n.slopeAbove}]";
         private string DumpAll() => string.Join(" ", nodes.ConvertAll(Dump).ToArray()) + $" | len={length:F3} hS={hScale:F3} vS={vScale:F3}";
 
         internal static T ParseEnum<T>(string s, T fallback) where T : struct =>
@@ -1526,7 +1366,6 @@ namespace CustomProceduralParts
                     pm.sectionPoints = sectionPoints;
                     pm.hScale = hScale;
                     pm.vScale = vScale;
-                    pm.airfoil = airfoil;
                     pm.shellMode = shellMode;
                     pm.shellThickness = shellThickness;
                     pm.selectedNode = selectedNode;

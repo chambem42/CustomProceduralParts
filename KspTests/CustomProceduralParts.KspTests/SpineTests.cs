@@ -98,8 +98,9 @@ namespace CustomProceduralParts.KspTests
             Assert.Equal("Ellipse|Mk2|Rectangle|Ellipse", string.Join("|", s.nodes.Select(n => n.section)), "legacy profiles read as sections");
             ctx.Record("volume", s.Volume);
             // 6.68466 before the built-in Mk2's points were placed on its true outline (2026-11-06): its node and the
-            // two segments blending into it grew. Change this only on purpose, with the built-in geometry.
-            Assert.Near(6.85143, s.Volume, 1e-3, "volume");
+            // two segments blending into it grew; 6.85143 until fillets went (2026-11-17) and its Rectangle node's
+            // rounded top corners with them. Change this only on purpose, with the built-in geometry.
+            Assert.Near(7.05121, s.Volume, 1e-3, "volume");
             yield break;
         }
 
@@ -586,6 +587,83 @@ namespace CustomProceduralParts.KspTests
                 if (ed != null) Object.Destroy(ed.gameObject);
                 SpineSettings.SetMirror(lr0, tb0);
                 Cleanup("ZzHexagon", "ZzArch", "ZzDiamond");
+            }
+        }
+
+        private static bool OnRun(List<Vector2> v, Vector2 a, Vector2 b) =>
+            Enumerable.Range(0, v.Count).Any(i => (v[i] - a).sqrMagnitude < 1e-6f && (v[(i + 1) % v.Count] - b).sqrMagnitude < 1e-6f);
+
+        /// <summary>
+        /// Stretch pulls a section's halves apart with straight runs between, fitted back to the box: right gives a flat
+        /// top and bottom, left flat sides. The slider works from the shape it started on (back to 0 restores it, any
+        /// other edit starts again from there), keeps a mirrored section mirrored, and the result saves.
+        /// </summary>
+        [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineTest")]
+        public static IEnumerator Editor_StretchStraightensTheMiddle(TestContext ctx)
+        {
+            // the pure function: a diamond (vertices on both cuts) and a circle-ish octagon (edges across them)
+            List<Vector2> d = SectionGeometry.StretchMiddle(Diamond, 1f);
+            ctx.Record("diamond +1", SectionGeometry.Format(d));
+            Assert.True(SectionGeometry.Validate(d) == null, $"valid ({SectionGeometry.Validate(d)})");
+            var oct = Enumerable.Range(0, 8).Select(k => new Vector2(Mathf.Cos((k + 0.5f) * Mathf.PI / 4f), Mathf.Sin((k + 0.5f) * Mathf.PI / 4f))).ToList();
+            float m = oct.Max(p => p.x), h = 0.5f * m;   // s = 1 doubles the width, squeezed back: the cut's two sides land at +/- m/2
+            List<Vector2> wide = SectionGeometry.StretchMiddle(oct, 1f);
+            ctx.Record("octagon +1", SectionGeometry.Format(wide));
+            Assert.Equal(12, wide.Count, "two points where each of the two crossing edges was cut");
+            Assert.True(Mathf.Abs(wide.Max(p => p.x) - m) < 1e-5f && Mathf.Abs(wide.Min(p => p.x) + m) < 1e-5f, "the same width");
+            Assert.True(Mathf.Abs(wide.Max(p => p.y) - m) < 1e-5f, "the same height");
+            Assert.True(OnRun(wide, new Vector2(h, m), new Vector2(-h, m)), "a flat top across the middle half");
+            List<Vector2> tall = SectionGeometry.StretchMiddle(oct, -1f);
+            Assert.True(OnRun(tall, new Vector2(-m, h), new Vector2(-m, -h)), "left: a flat left side");
+
+            ProceduralShapeSpine s = Spine();
+            bool lr0 = SpineSettings.MirrorLR, tb0 = SpineSettings.MirrorTB;
+            SpineSettings.SetMirror(false, false);
+            s.SelectNode(0);
+            s.EditCrossSectionsEvent();
+            try
+            {
+                yield return Imgui.WaitWindow("Spine Cross Sections");
+                var ed = Object.FindObjectOfType<CrossSectionEditor>();
+                ed.Select("Ellipse");
+                List<Vector2> start = new List<Vector2>(ed._verts);
+                Assert.True(ed.SetStretch(0.5f), "stretched");
+                Assert.True(ed._dirty, "an edit");
+                yield return Wait.Frames(3);
+                yield return Snap.Shot(ctx, "section-editor-stretch");
+                Assert.True(ed.SetStretch(1f) && ed.SetStretch(0f), "and back");
+                Assert.True(CrossSectionEditor.SamePolygon(start, ed._verts), "0 again: the shape it started on");
+
+                // another edit starts the slider again from the edited shape
+                ed.SetStretch(0.5f);
+                List<Vector2> half = new List<Vector2>(ed._verts);
+                ed.MoveVertex(0, ed._verts[0] + new Vector2(0f, 0.01f));
+                Assert.Equal(0f, ed._stretch, "the slider back at 0");
+                ed.SetStretch(-0.3f);
+                ed.SetStretch(0f);
+                Assert.False(CrossSectionEditor.SamePolygon(start, ed._verts) || CrossSectionEditor.SamePolygon(half, ed._verts), "0 is the edited shape");
+
+                // mirrored both ways it stays mirrored
+                ed.Select("ZzStretchHex");
+                ed._verts = new List<Vector2>(Hexagon);
+                ed.SetMirror(true, true);
+                Assert.True(ed.SetStretch(0.6f), "stretched mirrored");
+                Assert.True(ed._mirrorLR && ed._mirrorTB, "still mirrored");
+                Assert.True(MirrorsOnto(ed._verts, SectionSymmetry.FlipX) && MirrorsOnto(ed._verts, SectionSymmetry.FlipY), "symmetric both ways");
+                ed.MoveVertex(0, ed._verts[0] + new Vector2(0f, -0.05f));
+                Assert.True(MirrorsOnto(ed._verts, SectionSymmetry.FlipY), "a drag after it still mirrors");
+                ed._saveAsName = "ZzStretchHex";
+                ed.SaveTo(ed._saveAsName, overwriteOk: false);
+                CrossSection saved = CrossSectionLibrary.Get("ZzStretchHex");
+                Assert.True(saved != null, $"saved ({ed._status})");
+                ctx.Record("saved", SectionGeometry.Format(saved.verts));
+            }
+            finally
+            {
+                var ed = Object.FindObjectOfType<CrossSectionEditor>();
+                if (ed != null) Object.Destroy(ed.gameObject);
+                SpineSettings.SetMirror(lr0, tb0);
+                Cleanup("ZzStretchHex");
             }
         }
 

@@ -72,7 +72,6 @@ PART
 			sizeH = 1.8
 			sizeV = 1.4
 			profile = Rectangle
-			filletTop = 0.5
 		}
 		SPINE_NODE
 		{

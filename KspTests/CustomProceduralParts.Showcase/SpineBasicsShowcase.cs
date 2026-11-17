@@ -83,20 +83,12 @@ namespace CustomProceduralParts.Showcase
 
                 rec.Caption("Section", "Built-in Ellipse, Rectangle, Mk2 and Mk3, or any custom section");
                 yield return PawChoose(part, "nodeProfileOpt", () => SetField(s, "nodeProfileOpt", "Rectangle"));
-                yield return Frames(20, null);
-                rec.Caption("Rectangle: corner fillets", "Top and bottom corners rounded separately");
-                yield return PawFloat(part, s, "nodeFilletTop", 0f, 0.6f, 30);
-                yield return PawFloat(part, s, "nodeFilletBottom", 0f, 0.2f, 25);
-                yield return Frames(15, null);
-                rec.Caption("Section", "Built-in Ellipse, Rectangle, Mk2 and Mk3, or any custom section");
+                yield return Frames(30, null);
                 yield return PawChoose(part, "nodeProfileOpt", () => SetField(s, "nodeProfileOpt", "Mk2"));
                 yield return Frames(30, null);
                 yield return PawChoose(part, "nodeProfileOpt", () => SetField(s, "nodeProfileOpt", "Mk3"));
                 yield return Frames(30, null);
                 yield return PawChoose(part, "nodeProfileOpt", () => SetField(s, "nodeProfileOpt", "Ellipse"));
-                yield return Frames(15, null);
-                rec.Caption("Ellipse: stretch", "Flattens its sides toward a rectangle");
-                yield return PawFloat(part, s, "nodeStretch", 0f, 0.7f, 30);
                 yield return Frames(15, null);
 
                 rec.Caption("Slope", "How the body runs from this node to the next: linear, concave, convex or waisted");
@@ -298,7 +290,7 @@ namespace CustomProceduralParts.Showcase
                 // ---- outro -------------------------------------------------------------------------------------------
                 SpineSettings.Set(SpineSettings.HandleVis, SpineSettings.ClickBeforeDrag, false);
                 Paw.Close(part);
-                rec.Caption("Spine for Procedural Parts", "Also: a lifting-body airfoil toggle, hollow shells, FAR, and RP-1 tooling");
+                rec.Caption("Spine for Procedural Parts", "Also: hollow shells, FAR, and RP-1 tooling");
                 yield return Frames(150, f => Cam(hb.center, 120 + 80 * f, Mathf.Lerp(8, 4, f), Mathf.Lerp(1.7f * hs, 1.45f * hs, f), 0f));
             }
             finally

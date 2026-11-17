@@ -21,8 +21,7 @@ get `GameData/CustomProceduralParts/`. Needs ProceduralParts 2.8 or later and KS
 A fuselage-like body lofted from a series of cross-section nodes along an axis, edited with an
 in-scene gizmo. Added to every ProceduralParts part (pick it from the Shape selector).
 
-- Per-node cross-section: built-in Ellipse (with stretch), Rectangle (top/bottom fillets), Mk2,
-  Mk3, or any custom section. Sections morph point-for-point between adjacent nodes. With custom
+- Per-node cross-section: built-in Ellipse, Rectangle, Mk2, Mk3, or any custom section. Sections morph point-for-point between adjacent nodes. With custom
   sections in the spine, the points pair by best fit, whatever each section's vertex count: matching
   corners and edges morph into each other instead of twisting, every vertex stays exact (unless a
   section has more than the part's points per section), and neighbours with the same vertex count
@@ -34,7 +33,10 @@ in-scene gizmo. Added to every ProceduralParts part (pick it from the Shape sele
   cross-section, say). Mirror left-to-right and/or top-to-bottom: edit one side (or the top-left
   quadrant) and the rest follows; turning a mirror on replaces the far side, and Revert undoes it.
   The mirrors stay ticked (in `PluginData/SpineOptions.cfg`) for every section you open that is
-  already symmetric that way; one that isn't opens unmirrored until you tick it. With the dialog open and no unsaved edits, it shows whichever node is selected. Built-ins can't
+  already symmetric that way; one that isn't opens unmirrored until you tick it. Stretch pulls the
+  section's halves apart with straight runs between, fitted back into the box: right for a flat top
+  and bottom (a circle becomes a stadium), left for flat sides. With the dialog open and no unsaved
+  edits, it shows whichever node is selected. Built-ins can't
   be overwritten, only saved as a copy. Sections are polygons of up to 96 vertices that don't
   self-intersect (concave is fine), fitted to the node's width x height.
 - Shared and craft sections: your shared sections are stored in
@@ -54,7 +56,6 @@ in-scene gizmo. Added to every ProceduralParts part (pick it from the Shape sele
   node before dragging it, and cross-section outlines (on the selected part, every node's section
   drawn on it, its hidden side faint, with a faint vertical line through each node's handle; the
   selected node's in orange). For this part (saved with the craft): points per section, 24 to 96, for smoother curves.
-- Airfoil toggle (drives a stock ModuleLiftingSurface the patch adds).
 - Hollow shell mode with variable thickness and closable ends.
 - Volume, drag cubes, symmetry, and FAR/TestFlight interop.
 

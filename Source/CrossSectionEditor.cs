@@ -76,6 +76,34 @@ namespace CustomProceduralParts
         private readonly List<int> _mapM = new List<int>(), _mapF = new List<int>();
         private bool Mirroring => _chain != null;
 
+        // Straight-middle stretch (SectionGeometry.StretchMiddle): the slider reshapes the polygon as it was when the
+        // slider left 0, so dragging it back and forth doesn't compound. Any other edit starts again from there.
+        private float _stretch;
+        private List<Vector2> _stretchBase;
+
+        internal bool SetStretch(float s)
+        {
+            if (s == _stretch) return true;
+            if (_stretchBase == null) _stretchBase = new List<Vector2>(_verts);
+            List<Vector2> r = SectionGeometry.StretchMiddle(_stretchBase, s);
+            string err = r.Count > ProceduralShapeSpine.MaxSectionVerts ? $"Stretched, it would need more than {ProceduralShapeSpine.MaxSectionVerts} vertices."
+                       : SectionGeometry.Validate(r);
+            List<Vector2> c = null;
+            if (err == null && Mirroring)
+            {
+                c = SectionSymmetry.Chain(r, _mirrorLR, _mirrorTB, SectionSymmetry.MaxChain(_mirrorLR, _mirrorTB, ProceduralShapeSpine.MaxSectionVerts));
+                if (c == null) err = "Stretched, it doesn't mirror.";
+            }
+            if (err != null) { SetStatus(err, true); return false; }
+            if (c != null) { _chain = c; Remirror(); }
+            else _verts = r;
+            _stretch = s;
+            _drag = -1;
+            if (_statusErr) SetStatus("", false);
+            MarkDirty(stretching: true);
+            return true;
+        }
+
         private void Remirror() => _verts = SectionSymmetry.Full(_chain, _mirrorLR, _mirrorTB, _mapM, _mapF);
 
         // Turning a mirror on cuts the section at its line and replaces the far side with the near side's image
@@ -104,6 +132,7 @@ namespace CustomProceduralParts
             List<Vector2> before = _verts;
             Remirror();
             if (!SamePolygon(before, _verts)) MarkDirty();
+            else { _stretch = 0f; _stretchBase = null; }   // the same shape: a stretch starts again from it
         }
 
         // The mirrors last ticked (SpineSettings) come back on for each section opened that they leave as it is:
@@ -234,6 +263,8 @@ namespace CustomProceduralParts
             _dirty = false;
             _drag = -1;
             _confirm = null;
+            _stretch = 0f;
+            _stretchBase = null;
             _saveAsName = cs.IsBuiltIn ? cs.name + " custom" : cs.name;
             SetStatus(cs.IsBuiltIn ? "Built-in: edit, then Save As a new name."
                       : _craft ? "This craft's own section: Save updates the craft, Save As adds it to your shared sections." : "", false);
@@ -423,6 +454,14 @@ namespace CustomProceduralParts
             if (lr != _mirrorLR || tb != _mirrorTB) SetMirror(lr, tb);
 
             GUILayout.BeginHorizontal();
+            GUILayout.Label("Stretch", GUILayout.Width(52f));
+            float st = Mathf.Round(GUILayout.HorizontalSlider(_stretch, -1f, 1f, GUILayout.ExpandWidth(true)) * 20f) / 20f;
+            GUILayout.Label(_stretch == 0f ? "0" : _stretch.ToString("+0.00;-0.00") + (_stretch > 0f ? " flat top" : " flat sides"), GUILayout.Width(110f));
+            if (GUILayout.Button("0", GUILayout.Width(26f))) st = 0f;
+            GUILayout.EndHorizontal();
+            if (st != _stretch) SetStretch(st);
+
+            GUILayout.BeginHorizontal();
             GUILayout.Label("Plot opacity", GUILayout.Width(90f));
             _bgAlpha = GUILayout.HorizontalSlider(_bgAlpha, 0f, 1f, GUILayout.ExpandWidth(true));
             GUILayout.Label(Mathf.RoundToInt(_bgAlpha * 100f) + "%", GUILayout.Width(40f));
@@ -433,7 +472,8 @@ namespace CustomProceduralParts
                             $"{_verts.Count}/{ProceduralShapeSpine.MaxSectionVerts} vertices. Box = node width x height. " +
                             "Drag the corner to stretch the grid, e.g. over a part to trace it. " +
                             "Mirror: edits on one side show on the other; turning it on replaces the far side (Revert undoes). " +
-                            "It stays on for every symmetric section you open.");
+                            "It stays on for every symmetric section you open. " +
+                            "Stretch pulls the halves apart with straight runs between: right for a flat top and bottom, left for flat sides.");
 
             GUILayout.BeginHorizontal();
             GUI.enabled = !builtIn && _dirty;
@@ -652,10 +692,13 @@ namespace CustomProceduralParts
             }
         }
 
-        private void MarkDirty()
+        private void MarkDirty(bool stretching = false)
         {
             _dirty = true;
             _confirm = null;
+            if (stretching) return;
+            _stretch = 0f;   // an edit: a stretch from here starts from the edited shape
+            _stretchBase = null;
         }
 
         // Grid, box and outline are rasterized into a texture (redrawn only when they change): IMGUI
