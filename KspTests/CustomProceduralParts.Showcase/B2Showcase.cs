@@ -26,7 +26,7 @@ namespace CustomProceduralParts.Showcase
         private const string Craft = "B2Showcase";
         private const string Win = "Spine Cross Sections";
 
-        private static readonly Color Paint = new Color(0.30f, 0.32f, 0.35f);
+        internal static readonly Color Paint = new Color(0.30f, 0.32f, 0.35f);
 
         [UITest(Kind = "Showcase", Explicit = true, Mods = "B9-PWings-Fork;KerbalFoundriesContinued;TexturesUnlimited",
                 StartsAt = StartState.Sph, Craft = Craft, TimeoutSec = 3600)]
@@ -192,7 +192,7 @@ namespace CustomProceduralParts.Showcase
         }
 
         // The gizmo's node handle (the node's centre, offsets included), as the Spine places it.
-        private static Vector3 NodeHandle(ProceduralShapeSpine s, int i)
+        internal static Vector3 NodeHandle(ProceduralShapeSpine s, int i)
         {
             SpineNode n = s.nodes[i];
             return s.part.transform.TransformPoint(new Vector3(s.EoffH(n), (n.position - 0.5f) * s.length, s.Eoff(n)));
@@ -201,7 +201,7 @@ namespace CustomProceduralParts.Showcase
         // ---- the parts' look ------------------------------------------------------------------------------------------
 
         // The B-2's dark grey: B9 surfaces through Textures Unlimited's recoloring, the rest by material.
-        private static void PaintPart(Part p)
+        internal static void PaintPart(Part p)
         {
             if (p.Modules.Cast<PartModule>().Any(m => m.moduleName == "KSPTextureSwitch") && TuRecolor(p, Paint)) return;
             if (p.FindModuleImplementing<ProceduralShapeSpine>() == null && !p.name.StartsWith("B9")) return;   // gear, probe: as they are
@@ -216,7 +216,7 @@ namespace CustomProceduralParts.Showcase
             }
         }
 
-        private static bool TuRecolor(Part p, Color c)
+        internal static bool TuRecolor(Part p, Color c)
         {
             bool any = false;
             foreach (PartModule m in p.Modules)
@@ -245,16 +245,16 @@ namespace CustomProceduralParts.Showcase
             return any;
         }
 
-        private static void Hide(Part p)
+        internal static void Hide(Part p)
         {
             foreach (Renderer r in p.FindModelComponents<Renderer>()) r.enabled = false;
         }
 
         // B9's "press J" panel (it shows whenever B9 is loaded in the editor) off; B9 is only in this test's instance.
-        private static System.Reflection.FieldInfo _b9Active;
-        private static bool _b9Looked;
+        internal static System.Reflection.FieldInfo _b9Active;
+        internal static bool _b9Looked;
 
-        private static void B9PanelOff()
+        internal static void B9PanelOff()
         {
             if (!_b9Looked)
             {
@@ -265,7 +265,7 @@ namespace CustomProceduralParts.Showcase
             _b9Active?.SetValue(null, false);
         }
 
-        private static Bounds Bounds(IEnumerable<Part> parts)
+        internal static Bounds Bounds(IEnumerable<Part> parts)
         {
             Bounds b = default;
             bool any = false;
@@ -280,14 +280,14 @@ namespace CustomProceduralParts.Showcase
 
         // ---- the drawn cursor, the PAW and the IMGUI windows ----------------------------------------------------------
 
-        private static Vector2 ScreenOf(Vector3 world)
+        internal static Vector2 ScreenOf(Vector3 world)
         {
             Camera cam = EditorLogic.fetch.editorCamera ?? Camera.main;
             Vector3 v = cam.WorldToScreenPoint(world);
             return new Vector2(v.x, Screen.height - v.y);
         }
 
-        private static IEnumerator MoveCursor(Func<Vector2> to, int n)
+        internal static IEnumerator MoveCursor(Func<Vector2> to, int n)
         {
             FrameRecorder.CursorVisible = true;
             Vector2 from = FrameRecorder.CursorPos;
@@ -301,7 +301,7 @@ namespace CustomProceduralParts.Showcase
 
         // The cursor onto the IMGUI control `which` in window `win` (rects the harness's IMGUI patch records), pressed,
         // `act`, released.
-        private static IEnumerator ClickControl(string win, Func<Imgui.Control, bool> which, Action act)
+        internal static IEnumerator ClickControl(string win, Func<Imgui.Control, bool> which, Action act)
         {
             Rect? r = null;
             for (int t = 0; t < 60 && r == null; t++)
@@ -318,7 +318,7 @@ namespace CustomProceduralParts.Showcase
         }
 
         // The cursor onto a PAW button (scrolled into view), pressed, `act` (what the button does), released.
-        private static IEnumerator ClickPawButton(Part part, string label, Action act)
+        internal static IEnumerator ClickPawButton(Part part, string label, Action act)
         {
             UIPartActionButton b = Paw.FindButtonItem(part, label);
             if (b != null) ScrollIntoView(part, b);
@@ -338,7 +338,7 @@ namespace CustomProceduralParts.Showcase
             yield return Frames(8, null);
         }
 
-        private static void ScrollIntoView(Part part, Component item)
+        internal static void ScrollIntoView(Part part, Component item)
         {
             UIPartActionWindow w = Paw.Window(part);
             ScrollRect sr = w != null ? w.GetComponentInChildren<ScrollRect>() : null;
@@ -352,7 +352,7 @@ namespace CustomProceduralParts.Showcase
         }
 
         // The part's PAW with its top left at a GUI point (y down).
-        private static void MovePaw(Part part, Vector2 topLeftGui)
+        internal static void MovePaw(Part part, Vector2 topLeftGui)
         {
             UIPartActionWindow w = Paw.Window(part);
             if (w == null) return;
@@ -368,10 +368,10 @@ namespace CustomProceduralParts.Showcase
         }
 
         // Unit-box point -> GUI point on screen.
-        private static Vector2 OnPlot(CrossSectionEditor ed, Vector2 u) => ed._win.position + ed.ToPx(u);
+        internal static Vector2 OnPlot(CrossSectionEditor ed, Vector2 u) => ed._win.position + ed.ToPx(u);
 
         // Press on vertex i, sweep it from -> to (the cursor on it; the editor's own move, mirroring included), release.
-        private static IEnumerator Drag(CrossSectionEditor ed, int i, Vector2 from, Vector2 to, int n)
+        internal static IEnumerator Drag(CrossSectionEditor ed, int i, Vector2 from, Vector2 to, int n)
         {
             yield return MoveCursor(() => OnPlot(ed, from), 18);
             FrameRecorder.CursorPressed = true;
@@ -391,9 +391,9 @@ namespace CustomProceduralParts.Showcase
 
         // ---- camera --------------------------------------------------------------------------------------------------
 
-        private static float Smooth(float t) => t * t * (3 - 2 * t);
+        internal static float Smooth(float t) => t * t * (3 - 2 * t);
 
-        private static IEnumerator Frames(int n, Action<float> each)
+        internal static IEnumerator Frames(int n, Action<float> each)
         {
             for (int i = 0; i < n; ++i)
             {
@@ -403,11 +403,11 @@ namespace CustomProceduralParts.Showcase
             }
         }
 
-        private static bool camerasFreed;
+        internal static bool camerasFreed;
 
         // Every scene camera at `target` from `dist` m, heading `yaw` (0: from behind, looking along +z), `pitch` deg
         // above; `shift` slides the view so the target sits that share of the screen width right of centre.
-        private static void Orbit(Vector3 target, float yaw, float pitch, float dist, float fov, float shift = 0f)
+        internal static void Orbit(Vector3 target, float yaw, float pitch, float dist, float fov, float shift = 0f)
         {
             if (!camerasFreed)
             {
@@ -461,7 +461,7 @@ namespace CustomProceduralParts.Showcase
         {
             if (instance == null) return 0;
             int n = instance.frame;
-            CursorVisible = CursorPressed = false;
+            CursorVisible = CursorPressed = Paused = false;
             TestRunner.HideOverlay = false;
             GameEvents.onShowUI.Fire();
             Destroy(instance.gameObject);
@@ -470,6 +470,9 @@ namespace CustomProceduralParts.Showcase
         }
 
         public void Caption(string t, string l) { title = t; line = l; }
+
+        /// <summary>No frames saved while set (a cut: set-up the video shouldn't show).</summary>
+        public static bool Paused;
 
         private IEnumerator Capture()
         {
@@ -480,6 +483,7 @@ namespace CustomProceduralParts.Showcase
                 if (HideUi && (!uiHidden || frame % 10 == 0)) { GameEvents.onHideUI.Fire(); uiHidden = true; }
                 else if (!HideUi && uiHidden) { GameEvents.onShowUI.Fire(); uiHidden = false; }
                 yield return eof;
+                if (Paused) continue;
                 Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
                 if (CursorVisible) DrawCursor(tex);
                 File.WriteAllBytes(Path.Combine(dir, frame.ToString("D5") + ".jpg"), tex.EncodeToJPG(92));

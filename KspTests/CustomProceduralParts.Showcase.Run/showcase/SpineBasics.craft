@@ -1,0 +1,54 @@
+ship = SpineBasics
+version = 1.12.5
+description = One Procedural Parts structural part, still a Cylinder, lying along the SPH's length (its local y forward, z up, as the B-2's body): the start of the Spine basics showcase.
+type = SPH
+size = 1.25,2,1.25
+PART
+{
+	part = proceduralStructural_4100000001
+	partName = Part
+	persistentId = 4100000001
+	pos = 0,4,0
+	attPos = 0,0,0
+	attPos0 = 0,4,0
+	rot = 0,0.707107,0.707107,0
+	attRot = 0,0,0,1
+	attRot0 = 0,0.707107,0.707107,0
+	mir = 1,1,1
+	symMethod = Radial
+	autostrutMode = Off
+	rigidAttachment = False
+	istg = 0
+	resPri = 0
+	dstg = 0
+	sidx = -1
+	sqor = -1
+	sepI = 0
+	attm = 0
+	sameVesselCollision = False
+	modCost = 0
+	modMass = 0
+	modSize = 0,0,0
+	EVENTS
+	{
+	}
+	ACTIONS
+	{
+	}
+	PARTDATA
+	{
+	}
+	MODULE
+	{
+		name = ProceduralPart
+		isEnabled = True
+		shapeName = Cylinder
+	}
+	MODULE
+	{
+		name = ProceduralShapeCylinder
+		isEnabled = True
+		diameter = 1.25
+		length = 2
+	}
+}

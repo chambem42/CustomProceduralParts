@@ -73,6 +73,8 @@ checked out beside this repo; `KspTests/Directory.Build.props.user` holds local 
 Showcase videos are recorded the same way but kept apart (each wants an instance with extra mods):
 `dotnet test KspTests/CustomProceduralParts.Showcase.Run --filter FullyQualifiedName~Showcase_B2Fuselage`
 saves every frame (to `CPP_SHOWCASE_DIR` if set) for ffmpeg to assemble; see `B2Showcase.cs`.
+`Showcase_SpineBasics` (`SpineBasicsShowcase.cs`) is the PAW, the handles and a boat hull. Each
+take is a couple of GB of frames.
 
 ## Building
 
