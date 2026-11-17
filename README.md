@@ -33,7 +33,8 @@ in-scene gizmo. Added to every ProceduralParts part (pick it from the Shape sele
   stretch the grid, and turn Plot opacity down to see the scene through it (to trace a part's
   cross-section, say). Mirror left-to-right and/or top-to-bottom: edit one side (or the top-left
   quadrant) and the rest follows; turning a mirror on replaces the far side, and Revert undoes it.
-  With the dialog open and no unsaved edits, it shows whichever node is selected. Built-ins can't
+  The mirrors stay ticked (in `PluginData/SpineOptions.cfg`) for every section you open that is
+  already symmetric that way; one that isn't opens unmirrored until you tick it. With the dialog open and no unsaved edits, it shows whichever node is selected. Built-ins can't
   be overwritten, only saved as a copy. Sections are polygons of up to 96 vertices that don't
   self-intersect (concave is fine), fitted to the node's width x height.
 - Shared and craft sections: your shared sections are stored in

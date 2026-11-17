@@ -88,6 +88,7 @@ namespace CustomProceduralParts
             {
                 _mirrorLR = _mirrorTB = false;
                 _chain = null;
+                SpineSettings.SetMirror(false, false);
                 return;
             }
             List<Vector2> c = SectionSymmetry.Chain(_verts, lr, tb, SectionSymmetry.MaxChain(lr, tb, ProceduralShapeSpine.MaxSectionVerts));
@@ -99,9 +100,62 @@ namespace CustomProceduralParts
             _mirrorLR = lr;
             _mirrorTB = tb;
             _chain = c;
-            string before = SectionGeometry.Format(_verts);
+            SpineSettings.SetMirror(lr, tb);
+            List<Vector2> before = _verts;
             Remirror();
-            if (SectionGeometry.Format(_verts) != before) MarkDirty();
+            if (!SamePolygon(before, _verts)) MarkDirty();
+        }
+
+        // The mirrors last ticked (SpineSettings) come back on for each section opened that they leave as it is:
+        // both, else either one. A section they would change opens unmirrored (opening it isn't an edit, and Revert
+        // still undoes a mirror); ticking the box then mirrors it.
+        private bool ApplySavedMirror()
+        {
+            bool lr = SpineSettings.MirrorLR, tb = SpineSettings.MirrorTB;
+            foreach ((bool l, bool t) in new[] { (lr, tb), (lr, false), (false, tb) })
+            {
+                if (!l && !t) continue;
+                List<Vector2> c = SectionSymmetry.Chain(_verts, l, t, SectionSymmetry.MaxChain(l, t, ProceduralShapeSpine.MaxSectionVerts));
+                if (c == null) continue;
+                List<Vector2> full = SectionSymmetry.Full(c, l, t, _mapM, _mapF);
+                if (!SamePolygon(full, _verts)) continue;
+                _mirrorLR = l;
+                _mirrorTB = t;
+                _chain = c;
+                _verts = full;
+                return true;
+            }
+            return false;
+        }
+
+        // The same shape: the same corners in the same cyclic order (from any start), within a hair. Points along a
+        // straight edge don't count (mirroring a symmetric section adds them where an edge crosses the line).
+        private static bool SamePolygon(List<Vector2> a, List<Vector2> b)
+        {
+            a = Corners(a);
+            b = Corners(b);
+            int n = a.Count;
+            if (n != b.Count) return false;
+            for (int k = 0; k < n; k++)
+            {
+                int i = 0;
+                while (i < n && (a[(i + k) % n] - b[i]).sqrMagnitude < 1e-8f) i++;
+                if (i == n) return true;
+            }
+            return false;
+        }
+
+        private static List<Vector2> Corners(List<Vector2> v)
+        {
+            var o = new List<Vector2>(v.Count);
+            int n = v.Count;
+            for (int i = 0; i < n; i++)
+            {
+                Vector2 d1 = v[i] - v[(i + n - 1) % n], d2 = v[(i + 1) % n] - v[i];
+                bool straight = Mathf.Abs(d1.x * d2.y - d1.y * d2.x) < 1e-5f * d1.magnitude * d2.magnitude && Vector2.Dot(d1, d2) > 0f;
+                if (!straight) o.Add(v[i]);
+            }
+            return o;
         }
 
         // Vertex edits; with a mirror on they edit the master point (a mirrored vertex's own) and every image follows.
@@ -183,6 +237,8 @@ namespace CustomProceduralParts
             _saveAsName = cs.IsBuiltIn ? cs.name + " custom" : cs.name;
             SetStatus(cs.IsBuiltIn ? "Built-in: edit, then Save As a new name."
                       : _craft ? "This craft's own section: Save updates the craft, Save As adds it to your shared sections." : "", false);
+            if (!ApplySavedMirror() && (SpineSettings.MirrorLR || SpineSettings.MirrorTB))
+                SetStatus((_status.Length > 0 ? _status + " " : "") + "Mirror off: this section isn't symmetric (tick it to make it so).", false);
         }
 
         private void SetStatus(string s, bool err) { _status = s; _statusErr = err; }
@@ -376,7 +432,8 @@ namespace CustomProceduralParts
             GUILayout.Label($"Drag vertices. Double-click an edge to add one, right-click a vertex to remove it. " +
                             $"{_verts.Count}/{ProceduralShapeSpine.MaxSectionVerts} vertices. Box = node width x height. " +
                             "Drag the corner to stretch the grid, e.g. over a part to trace it. " +
-                            "Mirror: edits on one side show on the other; turning it on replaces the far side (Revert undoes).");
+                            "Mirror: edits on one side show on the other; turning it on replaces the far side (Revert undoes). " +
+                            "It stays on for every symmetric section you open.");
 
             GUILayout.BeginHorizontal();
             GUI.enabled = !builtIn && _dirty;

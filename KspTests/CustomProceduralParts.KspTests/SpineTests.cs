@@ -451,12 +451,14 @@ namespace CustomProceduralParts.KspTests
 
         /// <summary>
         /// With mirroring on, dragging, adding or deleting a vertex on either side edits its master and every image;
-        /// Revert turns mirroring off and brings the section back.
+        /// Revert brings the section back, unedited.
         /// </summary>
         [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineTest")]
         public static IEnumerator Editor_MirrorEditsFollowAcross(TestContext ctx)
         {
             ProceduralShapeSpine s = Spine();
+            bool lr0 = SpineSettings.MirrorLR, tb0 = SpineSettings.MirrorTB;
+            SpineSettings.SetMirror(false, false);
             s.SelectNode(0);
             s.EditCrossSectionsEvent();
             try
@@ -499,17 +501,91 @@ namespace CustomProceduralParts.KspTests
                 Assert.True(SectionGeometry.Validate(ed._verts) == null, $"valid ({SectionGeometry.Validate(ed._verts)})");
                 ctx.Record("both", SectionGeometry.Format(ed._verts));
 
-                // Revert: the section as saved, mirroring off
+                // Revert: the section as saved (mirrored again only if that leaves it as it is)
                 string cur = ed._current;
                 ed.Select(cur);
-                Assert.False(ed._mirrorLR || ed._mirrorTB || ed.Mirroring, "Revert turns mirroring off");
                 Assert.False(ed._dirty, "reverted");
-                Assert.Equal(SectionGeometry.Format(CrossSectionLibrary.Resolve(cur).EditableVerts()), SectionGeometry.Format(ed._verts), "the section back");
+                Assert.True(CrossSectionEditor.SamePolygon(CrossSectionLibrary.Resolve(cur).EditableVerts(), ed._verts), "the section back");
             }
             finally
             {
                 var ed = Object.FindObjectOfType<CrossSectionEditor>();
                 if (ed != null) Object.Destroy(ed.gameObject);
+                SpineSettings.SetMirror(lr0, tb0);
+            }
+        }
+
+        // Symmetric both ways (edges, not vertices, cross both mirror lines), left-right only, and neither.
+        private static readonly Vector2[] Hexagon =
+            { new Vector2(1f, 0f), new Vector2(0.5f, 1f), new Vector2(-0.5f, 1f), new Vector2(-1f, 0f), new Vector2(-0.5f, -1f), new Vector2(0.5f, -1f) };
+        private static readonly Vector2[] Arch =
+            { new Vector2(1f, -1f), new Vector2(1f, 0.3f), new Vector2(0f, 1f), new Vector2(-1f, 0.3f), new Vector2(-1f, -1f) };
+
+        /// <summary>
+        /// The mirror toggles are remembered (PluginData/SpineOptions.cfg, every craft): ticked, they come back on for
+        /// each section opened that they fit (both, or the one that fits), without making it an edit. A section they'd
+        /// change opens unmirrored and unedited, and Revert still undoes mirroring it.
+        /// </summary>
+        [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineTest")]
+        public static IEnumerator Editor_MirrorTogglesPersist(TestContext ctx)
+        {
+            ProceduralShapeSpine s = Spine();
+            bool lr0 = SpineSettings.MirrorLR, tb0 = SpineSettings.MirrorTB;
+            SpineSettings.SetMirror(false, false);
+            CrossSectionLibrary.Save("ZzHexagon", SectionGeometry.Normalize(Hexagon));
+            CrossSectionLibrary.Save("ZzArch", SectionGeometry.Normalize(Arch));
+            CrossSectionLibrary.Save("ZzDiamond", SectionGeometry.Normalize(Diamond));
+            s.SelectNode(0);
+            s.EditCrossSectionsEvent();
+            try
+            {
+                yield return Imgui.WaitWindow("Spine Cross Sections");
+                var ed = Object.FindObjectOfType<CrossSectionEditor>();
+                ed.Select("ZzHexagon");
+                Assert.False(ed.Mirroring, "off to start with");
+                ed.SetMirror(true, true);
+                Assert.True(ed._mirrorLR && ed._mirrorTB, "both on");
+                Assert.False(ed._dirty, "mirroring a symmetric section isn't an edit");
+                Assert.True(SpineSettings.MirrorLR && SpineSettings.MirrorTB, "remembered");
+
+                ed.Select("ZzArch");
+                Assert.True(ed._mirrorLR && !ed._mirrorTB, "an arch: left to right only");
+                Assert.False(ed._dirty, "opening it isn't an edit");
+
+                ed.Select("ZzDiamond");
+                ctx.Record("diamond status", ed._status);
+                Assert.False(ed.Mirroring, "a lopsided section opens unmirrored");
+                Assert.False(ed._dirty, "and unedited");
+                Assert.True(CrossSectionEditor.SamePolygon(CrossSectionLibrary.Resolve("ZzDiamond").EditableVerts(), ed._verts), "as saved");
+                Assert.True(SpineSettings.MirrorLR && SpineSettings.MirrorTB, "still remembered");
+
+                ed.SetMirror(true, false);
+                Assert.True(ed._dirty, "mirroring it is an edit");
+                ed.Select(ed._current);
+                Assert.False(ed.Mirroring || ed._dirty, "Revert undoes it");
+
+                ed.Select("ZzHexagon");
+                Assert.True(ed._mirrorLR && !ed._mirrorTB, "the last ticked (left to right) comes back");
+
+                // a new dialog, and the options read back from the file as at startup
+                Object.Destroy(ed.gameObject);
+                yield return Wait.Frames(2);
+                SpineSettings.SetMirror(true, true);
+                SpineSettings._loaded = false;
+                SpineSettings._mirrorLR = SpineSettings._mirrorTB = false;
+                Assert.True(SpineSettings.MirrorLR && SpineSettings.MirrorTB, "read back from SpineOptions.cfg");
+                s.EditCrossSectionsEvent();
+                yield return Imgui.WaitWindow("Spine Cross Sections");
+                ed = Object.FindObjectOfType<CrossSectionEditor>();
+                ed.Select("ZzHexagon");
+                Assert.True(ed._mirrorLR && ed._mirrorTB, "on in a new dialog");
+            }
+            finally
+            {
+                var ed = Object.FindObjectOfType<CrossSectionEditor>();
+                if (ed != null) Object.Destroy(ed.gameObject);
+                SpineSettings.SetMirror(lr0, tb0);
+                Cleanup("ZzHexagon", "ZzArch", "ZzDiamond");
             }
         }
 
