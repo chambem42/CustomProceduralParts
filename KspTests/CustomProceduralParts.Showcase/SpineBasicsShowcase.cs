@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using KSP.UI;
 using KSP.UI.Screens;
 using KspTest;
@@ -35,7 +36,7 @@ namespace CustomProceduralParts.Showcase
             Assert.NotNull(s, "it offers the Spine");
             part.SetHighlightType(Part.HighlightType.Disabled);
             part.SetHighlight(false, false);
-            SpineSettings.Set(SpineHandleVis.Active, false, false);
+            SpineSettings.Set(SpineHandleVis.Active, false, true);   // cross-section outlines on from the start
             SpineSettings.SetMirror(false, false);
             CrossSectionLibrary.Delete(Hull);   // a rerun starts without it
             CrossSectionEditor._gridW = 380f;
@@ -269,7 +270,7 @@ namespace CustomProceduralParts.Showcase
                 yield return Frames(15, null);
 
                 // ---- options: smoother sections, outlines ---------------------------------------------------------------
-                rec.Caption("Spine Options: points per section", "More points for smoother curves; outlines show every node's section");
+                rec.Caption("Spine Options: points per section", "More points for smoother curves");
                 FrameRecorder.CursorPos = new Vector2(0.6f * Screen.width, 0.5f * Screen.height);
                 yield return ClickPawButton(part, "Spine Options", () => s.SpineOptionsEvent());
                 yield return Imgui.WaitWindow(SpineOptionsWindow.Title);
@@ -277,9 +278,6 @@ namespace CustomProceduralParts.Showcase
                 opts._win = new Rect(Screen.width - 440f - opts._win.width - 20f, 60f, opts._win.width, opts._win.height);
                 yield return Frames(10, null);
                 yield return ClickControl(SpineOptionsWindow.Title, c => c.Label == "48", () => s.SetSectionPoints(48));
-                yield return Frames(10, null);
-                yield return ClickControl(SpineOptionsWindow.Title, c => c.Label == "Show cross-section outlines",
-                                          () => SpineSettings.Set(SpineSettings.HandleVis, SpineSettings.ClickBeforeDrag, true));
                 yield return Frames(25, null);
                 yield return ClickControl(SpineOptionsWindow.Title, c => c.Label == "Close", () => UnityEngine.Object.Destroy(opts.gameObject));
                 FrameRecorder.CursorVisible = false;
@@ -386,28 +384,112 @@ namespace CustomProceduralParts.Showcase
 
         // The cursor onto a number field's slider, which it drags from `from` to `to` over n frames (`cam` each frame);
         // `step`: whole numbers (the Node slider).
+        // A PAW float changed through its own controls, as a player would, so the PAW shows it: a range slider dragged;
+        // an edit field's arrow buttons tapped (large steps, then small) until the value is within its slider's span
+        // (one small step), then that slider dragged the rest of the way. The cursor follows the button or the slider's
+        // handle. `cam` gets the progress from `from` to `to`.
         private static IEnumerator PawFloat(Part part, PartModule host, string field, float from, float to, int n, Action<float> cam = null, bool step = false)
         {
             yield return Frames(3, null);
-            Rect? r = PawItemRect(part, field);
-            Vector2 At(float f) => r == null ? FrameRecorder.CursorPos
-                : new Vector2(r.Value.x + r.Value.width * (0.3f + 0.4f * f), r.Value.y + 0.72f * r.Value.height);
-            if (r != null) yield return MoveCursor(() => At(0f), 18);
-            FrameRecorder.CursorPressed = true;
-            yield return Frames(4, null);
-            for (int k = 1; k <= n; k++)
+            PawItemRect(part, field);   // scrolled into view
+            BaseField bf = host.Fields[field];
+            float Cur() => Convert.ToSingle(bf.GetValue(host));
+            void Progress() => cam?.Invoke(Mathf.Approximately(from, to) ? 1f : Mathf.Clamp01((Cur() - from) / (to - from)));
+
+            if (Paw.FindFieldItem<UIPartActionFieldItem>(part, field) is UIPartActionFloatRange)
             {
-                float f = B2Showcase.Smooth((float)k / n);
-                float v = Mathf.Lerp(from, to, f);
-                if (step) v = Mathf.Round(v);
-                SetField(host, field, v);
-                FrameRecorder.CursorPos = At(f);
-                cam?.Invoke((float)k / n);
-                yield return null;
+                var ctl = (UI_FloatRange)bf.uiControlEditor;
+                UIPartActionFloatRange Item() => Paw.FindFieldItem<UIPartActionFloatRange>(part, field);
+                yield return MoveCursor(() => Handle(Item()?.slider), 18);
+                FrameRecorder.CursorPressed = true;
+                yield return Frames(4, null);
+                float start = Cur();
+                for (int k = 1; k <= n; k++)
+                {
+                    float v = Mathf.Lerp(start, to, B2Showcase.Smooth((float)k / n));
+                    if (Item() is UIPartActionFloatRange it)
+                    {
+                        it.slider.normalizedValue = Mathf.InverseLerp(ctl.minValue, ctl.maxValue, v);
+                        FrameRecorder.CursorPos = Handle(it.slider);
+                    }
+                    Progress();
+                    yield return null;
+                }
+                FrameRecorder.CursorPressed = false;
+                yield return Frames(6, null);
+                yield break;
             }
-            FrameRecorder.CursorPressed = false;
+
+            UIPartActionFloatEdit Edit() => Paw.FindFieldItem<UIPartActionFloatEdit>(part, field);
+            if (Edit() == null) { SetField(host, field, to); yield break; }
+            var ectl = (UI_FloatEdit)bf.uiControlEditor;
+            MethodInfo interval = typeof(UIPartActionFloatEdit).GetMethod("SliderInterval", BindingFlags.Instance | BindingFlags.NonPublic);
+            bool Span(out float lo, out float hi)
+            {
+                var args = new object[] { Cur(), 0f, 0f };
+                interval.Invoke(Edit(), args);
+                lo = (float)args[1];
+                hi = (float)args[2];
+                float eps = 1e-4f * Mathf.Max(1f, Mathf.Abs(hi - lo));
+                return to >= lo - eps && to <= hi + eps;
+            }
+            bool first = true;
+            for (int taps = 0; taps < 40 && !Span(out _, out _); taps++)
+            {
+                float rem = to - Cur();
+                bool up = rem > 0f, large = ectl.incrementLarge > 0f && Mathf.Abs(rem) >= ectl.incrementLarge;
+                UIPartActionFloatEdit e = Edit();
+                UIButtonToggle b = large ? (up ? e.incLarge : e.decLarge) : (up ? e.incSmall : e.decSmall);
+                yield return MoveCursor(() => Center((RectTransform)b.transform), first ? 18 : 6);
+                first = false;
+                FrameRecorder.CursorPressed = true;
+                yield return Frames(3, null);
+                if (large) { if (up) e.OnTap_incLarge(); else e.OnTap_decLarge(); }
+                else { if (up) e.OnTap_incSmall(); else e.OnTap_decSmall(); }
+                Progress();
+                FrameRecorder.CursorPressed = false;
+                yield return Frames(5, null);
+            }
+            if (Span(out float l0, out float h0) && h0 > l0)
+            {
+                yield return MoveCursor(() => Handle(Edit()?.slider), 14);
+                FrameRecorder.CursorPressed = true;
+                yield return Frames(3, null);
+                float start = Cur();
+                int m = Mathf.Max(8, n / 3);
+                for (int k = 1; k <= m; k++)
+                {
+                    float v = Mathf.Lerp(start, to, B2Showcase.Smooth((float)k / m));
+                    if (Edit() is UIPartActionFloatEdit e)
+                    {
+                        e.slider.normalizedValue = Mathf.InverseLerp(l0, h0, v);
+                        FrameRecorder.CursorPos = Handle(e.slider);
+                    }
+                    Progress();
+                    yield return null;
+                }
+                FrameRecorder.CursorPressed = false;
+            }
+            if (Mathf.Abs(Cur() - to) > 0.01f * Mathf.Max(1f, Mathf.Abs(to)))
+            {
+                Debug.LogWarning($"[SpineBasicsShowcase] {field}: the PAW got {Cur()}, wanted {to}; set directly");
+                SetField(host, field, to);
+            }
+            Progress();
             yield return Frames(6, null);
         }
+
+        // A UI element's centre, or a slider's handle, in GUI coordinates (y down).
+        private static Vector2 Center(RectTransform rt)
+        {
+            var c = new Vector3[4];
+            rt.GetWorldCorners(c);
+            Vector2 p = RectTransformUtility.WorldToScreenPoint(UIMasterController.Instance.uiCamera, 0.5f * (c[0] + c[2]));
+            return new Vector2(p.x, Screen.height - p.y);
+        }
+
+        private static Vector2 Handle(UnityEngine.UI.Slider s) =>
+            s == null ? FrameRecorder.CursorPos : Center(s.handleRect != null ? s.handleRect : (RectTransform)s.transform);
 
         // ---- the gizmo ---------------------------------------------------------------------------------------------
 
