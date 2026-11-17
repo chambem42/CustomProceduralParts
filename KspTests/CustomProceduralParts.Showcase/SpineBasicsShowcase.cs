@@ -200,6 +200,9 @@ namespace CustomProceduralParts.Showcase
                 int added = Nearest(ed._verts, ed.Place(midPt));
                 yield return Drag(ed, added, ed._verts[added], new Vector2(-0.5f, -0.75f), 35);
                 yield return Frames(15, null);
+                rec.Caption("Stretch", "Pulls the halves apart with straight runs between: a flat keel (left for flat sides)");
+                yield return StretchSlider(ed, 0.35f, 40);
+                yield return Frames(20, null);
 
                 rec.Caption("Save As", "A name, and it joins your shared sections, offered on every craft");
                 Rect? saveAs = ControlRect(Win, c => c.Label == "Save As");
@@ -479,6 +482,30 @@ namespace CustomProceduralParts.Showcase
 
         private static Rect? ControlRect(string win, Func<Imgui.Control, bool> which) =>
             Imgui.FindWindow(win)?.Controls.FirstOrDefault(which)?.ScreenRect;
+
+        // The editor's Stretch slider dragged to `to`. The slider has no label of its own: it runs from under the
+        // mirror toggles (its row's label is as wide as theirs) to its value label (110 px) before the "0" button.
+        private static IEnumerator StretchSlider(CrossSectionEditor ed, float to, int n)
+        {
+            Rect? lr = ControlRect(Win, c => c.Label != null && c.Label.Contains("Left to right"));
+            Rect? zero = ControlRect(Win, c => c.Kind == Imgui.Kind.Button && c.Label == "0");
+            if (lr == null || zero == null) { ed.SetStretch(to); yield break; }
+            float x0 = lr.Value.x + 6f, x1 = zero.Value.x - 124f, y = zero.Value.center.y;
+            Func<float, Vector2> at = v => new Vector2(Mathf.Lerp(x0, x1, 0.5f * (v + 1f)), y);
+            float from = ed._stretch;
+            yield return MoveCursor(() => at(from), 18);
+            FrameRecorder.CursorPressed = true;
+            yield return Frames(3, null);
+            for (int i = 1; i <= n; i++)
+            {
+                float v = Mathf.Lerp(from, to, B2Showcase.Smooth((float)i / n));
+                FrameRecorder.CursorPos = at(v);
+                ed.SetStretch(Mathf.Round(v * 20f) / 20f);
+                yield return null;
+            }
+            FrameRecorder.CursorPressed = false;
+            yield return Frames(5, null);
+        }
 
         private static int Nearest(List<Vector2> v, Vector2 p) =>
             Enumerable.Range(0, v.Count).OrderBy(i => (v[i] - p).sqrMagnitude).First();
