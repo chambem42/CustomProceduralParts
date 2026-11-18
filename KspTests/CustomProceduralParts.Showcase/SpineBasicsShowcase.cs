@@ -162,7 +162,7 @@ namespace CustomProceduralParts.Showcase
                     yield return Frames(18, null);
                 }
                 FrameRecorder.CursorVisible = false;
-                SpineSettings.Set(SpineHandleVis.Active, SpineSettings.ClickBeforeDrag, false);
+                SpineSettings.Set(SpineHandleVis.Active, SpineSettings.ClickBeforeDrag, true);   // the hull keeps the outlines
                 yield return Frames(20, null);
 
                 // ---- a boat hull -------------------------------------------------------------------------------------
