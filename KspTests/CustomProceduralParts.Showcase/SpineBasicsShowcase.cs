@@ -55,10 +55,8 @@ namespace CustomProceduralParts.Showcase
                 Vector3 home = part.transform.position;
 
                 // ---- a Procedural Parts part -------------------------------------------------------------------------
-                rec.Caption("Custom Procedural Parts", "Adds a Spine shape to every Procedural Parts part: a body shaped by a chain of cross-sections");
-                Cam(home, 110, 20, 9f, 0f);
-                yield return Frames(110, f => Cam(home, 110 + 40 * f, 20, 9f, 0f));
-                yield return FrameRecorder.Card("PAW Controls", 0f, 1f, 18, f => Cam(home, 150 + 4 * f, 20, 9f, 0f));
+                // the intro take (IntroShowcase) comes before this one in the video and ends dark: straight to the card
+                Cam(home, 150, 20, 9f, 0f);
                 rec.Caption("", "");
                 yield return FrameRecorder.Card("PAW Controls", 1f, 1f, 60);
                 yield return FrameRecorder.Card("PAW Controls", 1f, 0f, 18);
