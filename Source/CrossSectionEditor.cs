@@ -334,6 +334,7 @@ namespace CustomProceduralParts
             // over the background it draws.
             _win = GUILayout.Window(_winId, r, DrawWindow, Title, _frameStyle, GUILayout.Width(Mathf.Max(440f, _gridW + 24f)));
             DropDown();
+            _tips.Draw(!_dropOpen && _drag < 0 && !_resizing);
             if (Event.current.type == EventType.Repaint || Event.current.isMouse)
                 _mouseOver = _win.Contains(Event.current.mousePosition) || (_dropOpen && _dropRect.Contains(Event.current.mousePosition));
         }
@@ -419,8 +420,13 @@ namespace CustomProceduralParts
             _frameStyle.Draw(full, new GUIContent(Title), false, false, false, false);
         }
 
+        // Tooltips, shown once the pointer rests on a control (SpineTips).
+        private readonly SpineTips _tips = new SpineTips(Title);
+        private void Tip(string text) => _tips.Add(text, _win.position);
+
         private void DrawWindow(int id)
         {
+            _tips.BeginRepaint();
             if (Event.current.type == EventType.Repaint) DrawFrame();
             bool builtIn = _cs == null || _cs.IsBuiltIn;
 
@@ -429,26 +435,37 @@ namespace CustomProceduralParts
             string label = _current + (builtIn ? "  (built-in)" : _craft ? "  (craft)" : "") + (_dirty ? "  *" : "") + "   ▾";
             if (GUILayout.Button(label)) _dropOpen = !_dropOpen;
             if (Event.current.type == EventType.Repaint) _dropBtn = GUILayoutUtility.GetLastRect();
+            Tip("The section to edit: a built-in, one of your shared sections, or this craft's own");
             GUILayout.EndHorizontal();
 
             _gridRect = GUILayoutUtility.GetRect(_gridW, _gridH, GUILayout.ExpandWidth(false), GUILayout.ExpandHeight(false));
             if (Event.current.type == EventType.Repaint) _hole = _gridRect;
             HandleGridInput();
             if (Event.current.type == EventType.Repaint) DrawGrid();
+            _tips.Add(_gridRect, "Drag a vertex to move it. Double-click an edge to add a vertex; right-click one to remove it. " +
+                                 "The box is the node's width x height.", _win.position);
 
             GUILayout.BeginHorizontal();
             _snap = Check(_snap, "Snap to grid", 120f);
+            Tip("Dragged vertices land on the grid");
+            GUILayout.Label($"{_verts.Count}/{ProceduralShapeSpine.MaxSectionVerts} vertices");
+            Tip($"A section has up to {ProceduralShapeSpine.MaxSectionVerts} vertices");
             GUILayout.FlexibleSpace();
             GUILayout.Label("Grid");
             if (GUILayout.Button("-", GUILayout.Width(26f))) _gridIdx = Mathf.Max(0, _gridIdx - 1);
+            Tip("A finer grid");
             GUILayout.Label(GridSteps[_gridIdx].ToString("0.####"), GUILayout.Width(48f));
+            Tip("The grid step, as a share of the box");
             if (GUILayout.Button("+", GUILayout.Width(26f))) _gridIdx = Mathf.Min(GridSteps.Length - 1, _gridIdx + 1);
+            Tip("A coarser grid");
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             GUILayout.Label("Mirror:", GUILayout.Width(52f));
             bool lr = Check(_mirrorLR, "Left to right", 120f);
+            Tip("Edit one side and the other follows. Turning it on replaces the far side (Revert undoes). It stays on for every left-right symmetric section you open.");
             bool tb = Check(_mirrorTB, "Top to bottom", 130f);
+            Tip("Edit the top and the bottom follows. Turning it on replaces the bottom (Revert undoes). It stays on for every top-bottom symmetric section you open.");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             if (lr != _mirrorLR || tb != _mirrorTB) SetMirror(lr, tb);
@@ -456,24 +473,21 @@ namespace CustomProceduralParts
             GUILayout.BeginHorizontal();
             GUILayout.Label("Stretch", GUILayout.Width(52f));
             float st = Mathf.Round(GUILayout.HorizontalSlider(_stretch, -1f, 1f, GUILayout.ExpandWidth(true)) * 20f) / 20f;
+            Tip("Pulls the section's halves apart with straight runs between, fitted back in the box: right for a flat top and bottom, left for flat sides");
             GUILayout.Label(_stretch == 0f ? "0" : _stretch.ToString("+0.00;-0.00") + (_stretch > 0f ? " flat top" : " flat sides"), GUILayout.Width(110f));
             if (GUILayout.Button("0", GUILayout.Width(26f))) st = 0f;
+            Tip("No stretch");
             GUILayout.EndHorizontal();
             if (st != _stretch) SetStretch(st);
 
             GUILayout.BeginHorizontal();
             GUILayout.Label("Plot opacity", GUILayout.Width(90f));
             _bgAlpha = GUILayout.HorizontalSlider(_bgAlpha, 0f, 1f, GUILayout.ExpandWidth(true));
+            Tip("Turn it down to see the scene through the plot, to trace a part's cross-section");
             GUILayout.Label(Mathf.RoundToInt(_bgAlpha * 100f) + "%", GUILayout.Width(40f));
             if (GUILayout.Button("Square", GUILayout.Width(64f))) { _gridW = _gridH = Mathf.Min(_gridW, _gridH); _refit = true; }
+            Tip("Make the plot square (drag the window's corner to size it)");
             GUILayout.EndHorizontal();
-
-            GUILayout.Label($"Drag vertices. Double-click an edge to add one, right-click a vertex to remove it. " +
-                            $"{_verts.Count}/{ProceduralShapeSpine.MaxSectionVerts} vertices. Box = node width x height. " +
-                            "Drag the corner to stretch the grid, e.g. over a part to trace it. " +
-                            "Mirror: edits on one side show on the other; turning it on replaces the far side (Revert undoes). " +
-                            "It stays on for every symmetric section you open. " +
-                            "Stretch pulls the halves apart with straight runs between: right for a flat top and bottom, left for flat sides.");
 
             GUILayout.BeginHorizontal();
             GUI.enabled = !builtIn && _dirty;
@@ -482,8 +496,10 @@ namespace CustomProceduralParts
                 if (_craft) SaveToCraft();
                 else SaveTo(_current, overwriteOk: true);
             }
+            Tip(builtIn ? "Built-ins can't be overwritten: Save As a new name" : _craft ? "Update this craft's own copy of the section" : "Save over this section: every node using it follows");
             GUI.enabled = _dirty;
             if (GUILayout.Button("Revert")) Select(_cs, _craft);
+            Tip("Undo the unsaved edits");
             GUI.enabled = !builtIn && !_craft;   // a craft's own section goes when no node uses it
             if (GUILayout.Button(_confirm == "Delete" ? "Really delete?" : "Delete"))
             {
@@ -496,6 +512,7 @@ namespace CustomProceduralParts
                 }
                 else { _confirm = "Delete"; SetStatus("Click again to delete.", false); }
             }
+            Tip("Delete this shared section (click twice). Nodes using it show as Ellipse.");
             GUI.enabled = true;
             GUILayout.EndHorizontal();
 
@@ -505,6 +522,7 @@ namespace CustomProceduralParts
             _saveAsName = GUILayout.TextField(_saveAsName ?? "");
             if (Event.current.type == EventType.Repaint) _typing = GUI.GetNameOfFocusedControl() == SaveAsControl;
             if (GUILayout.Button("Save As", GUILayout.Width(80f))) SaveTo(_saveAsName, overwriteOk: false);
+            Tip("Save under a new name: it joins your shared sections, offered on every craft");
             GUILayout.EndHorizontal();
 
             if (!string.IsNullOrEmpty(_status))
@@ -520,6 +538,7 @@ namespace CustomProceduralParts
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             HandleResizeGrip();
+            _tips.Add(new Rect(_win.width - 18f, _win.height - 18f, 16f, 16f), "Drag to size the plot", _win.position);
             GUI.DragWindow(new Rect(0f, 0f, 10000f, 24f));
         }
 
