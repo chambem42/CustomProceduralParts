@@ -12,19 +12,16 @@ using UnityEngine.UI;
 namespace CustomProceduralParts.Showcase
 {
     /// <summary>
-    /// A showcase video of a Spine's custom cross-sections, not a check: planecraft's B-2 (FlightGear's model cut into a
-    /// Spine centre body, a nacelle pair and B9 wings; showcase/B2Showcase.craft, built with build.py --body-up so the
-    /// body lies local z up and its sections read the right way up in the dialog) shown whole, then down to the centre
-    /// body, driven as a player would: the PAW's Spine Options (cross-section outlines on), Edit Cross Sections, the
-    /// gizmo's node handles. Every rendered frame goes to frames/NNNNN.jpg under the results folder (or
-    /// CPP_SHOWCASE_DIR), with captions and a drawn cursor; assemble at 30 fps:
+    /// A short showcase video, not a check: a plane body example (showcase/B2Showcase.craft: a Spine centre body of custom
+    /// sections, a nacelle pair and B9 wings, built with the body local z up) shown whole, cut down to the centre body,
+    /// its cross-section outlines turned on, and once around it. Every rendered frame goes to frames/NNNNN.jpg under
+    /// the results folder (or CPP_SHOWCASE_DIR), with captions; assemble at 30 fps:
     /// ffmpeg -framerate 30 -i %05d.jpg -c:v libx264 -pix_fmt yuv420p -crf 18 b2.mp4
     /// Run it: dotnet test KspTests/CustomProceduralParts.Showcase.Run --filter FullyQualifiedName~Showcase_B2Fuselage
     /// </summary>
     public static class B2Showcase
     {
         private const string Craft = "B2Showcase";
-        private const string Win = "Spine Cross Sections";
 
         internal static readonly Color Paint = new Color(0.30f, 0.32f, 0.35f);
 
@@ -45,7 +42,7 @@ namespace CustomProceduralParts.Showcase
                 p.SetHighlight(false, false);
             }
             foreach (Part p in parts) PaintPart(p);
-            SpineSettings.Set(SpineHandleVis.Active, true, false);
+            SpineSettings.Set(SpineHandleVis.None, false, false);   // no handles: outlines only, once on
             Bounds all = Bounds(parts);
             Bounds bb = Bounds(new[] { root });
             ctx.Record("craft", all.ToString());
@@ -64,133 +61,41 @@ namespace CustomProceduralParts.Showcase
             try
             {
                 // ---- the whole craft ------------------------------------------------------------------------------------
-                rec.Caption("A B-2, cut from a 3D model", "planecraft turned FlightGear's B-2 into a Procedural Parts Spine centre body and B9 wings");
-                yield return Frames(200, f => Orbit(all.center, 205 + 45 * f, 26, 0.85f * size, 30));
+                rec.Caption("Plane body example", "");
+                yield return Frames(150, f => Orbit(all.center, 205 + 35 * f, 26, 0.85f * size, 30));
 
                 // ---- down to the centre body: the rest removed, from the tips in --------------------------------------------
-                rec.Caption("Down to the centre body", "Everything but the one Spine part removed");
+                rec.Caption("Plane body example", "The centre body is one Spine part");
                 List<Part> others = parts.Where(p => p != root)
                     .OrderByDescending(p => Mathf.Abs(p.transform.position.x - root.transform.position.x)).ToList();
                 int per = Mathf.Max(1, 90 / Mathf.Max(1, others.Count));
                 int k = 0;
                 yield return Frames(per * others.Count + 30, f =>
                 {
-                    Orbit(Vector3.Lerp(all.center, bb.center, Smooth(f)), 250 + 15 * f, Mathf.Lerp(26, 24, f),
+                    Orbit(Vector3.Lerp(all.center, bb.center, Smooth(f)), 240 + 15 * f, Mathf.Lerp(26, 24, f),
                           Mathf.Lerp(0.85f * size, 1.3f * bsize, Smooth(f)), 30);
                     int upTo = Mathf.Min(others.Count, (int)(f * (per * others.Count + 30) / per));
                     for (; k < upTo; k++) Hide(others[k]);
                 });
                 foreach (Part p in others) Hide(p);
 
-                // ---- Spine Options: cross-section outlines -----------------------------------------------------------
-                // the part's PAW (its gizmo comes with it), KSP's UI shown while it's used
-                float viewYaw = 235, viewPitch = 32, viewDist = 1.45f * bsize, shift = 0.18f;
-                yield return Frames(30, f => Orbit(bb.center, Mathf.Lerp(265, viewYaw, Smooth(f)), Mathf.Lerp(24, viewPitch, Smooth(f)), Mathf.Lerp(1.3f * bsize, viewDist, Smooth(f)), 30, shift * Smooth(f)));
-                rec.HideUi = false;
+                // ---- cross-section outlines on (the part selected, its PAW hidden), then once around it -----------------
                 yield return Paw.Open(root);
                 Pointer(false);
-                yield return Frames(4, null);
-                MovePaw(root, new Vector2(Screen.width - 420f, 70f));
-                rec.Caption("Spine Options", "A new PAW button opens the Spine's display options: handles, click-before-drag, and cross-section outlines");
-                FrameRecorder.CursorPos = new Vector2(0.55f * Screen.width, 0.55f * Screen.height);
-                yield return ClickPawButton(root, "Spine Options", () => body.SpineOptionsEvent());
-                yield return Imgui.WaitWindow(SpineOptionsWindow.Title);
-                var opts = UnityEngine.Object.FindObjectOfType<SpineOptionsWindow>();
-                opts._win = new Rect(660f, 110f, opts._win.width, opts._win.height);   // clear of the parts list
-                yield return Frames(25, null);
-                yield return ClickControl(SpineOptionsWindow.Title, c => c.Label == "Show cross-section outlines",
-                                          () => SpineSettings.Set(SpineSettings.HandleVis, SpineSettings.ClickBeforeDrag, true));
-                rec.Caption("Cross-section outlines", $"Every node's section drawn on the part - {body.nodes.Count} here, each its own custom section cut from the model");
-                yield return Frames(45, null);
-                yield return ClickControl(SpineOptionsWindow.Title, c => c.Label == "Close", () => UnityEngine.Object.Destroy(opts.gameObject));
-                yield return Frames(10, null);
-                FrameRecorder.CursorVisible = false;
-                rec.HideUi = true;
-                // the outlines stacked down the body, nose on
-                yield return Frames(60, f => Orbit(bb.center, Mathf.LerpAngle(viewYaw, 180, Smooth(f)), Mathf.Lerp(viewPitch, 8, Smooth(f)), Mathf.Lerp(viewDist, 0.95f * bsize, Smooth(f)), 30, shift * (1 - Smooth(f))));
-                yield return Frames(50, f => Orbit(bb.center, 180 + 20 * Mathf.Sin(Mathf.PI * f), 8 + 6 * Mathf.Sin(Mathf.PI * f), 0.95f * bsize, 30));
-                yield return Frames(45, f => Orbit(bb.center, Mathf.LerpAngle(180, viewYaw, Smooth(f)), Mathf.Lerp(8, viewPitch, Smooth(f)), Mathf.Lerp(0.95f * bsize, viewDist, Smooth(f)), 30, shift * Smooth(f)));
-
-                // ---- the section dialog follows the node picked on the gizmo -------------------------------------------
-                var order = Enumerable.Range(0, body.nodes.Count).OrderByDescending(i => body.nodes[i].position).ToList();   // nose first
-                CrossSectionEditor._gridW = 620f;
-                CrossSectionEditor._gridH = Mathf.Clamp(620f * body.nodes.Max(n => n.sizeV) / body.nodes.Max(n => n.sizeH), 200f, 400f);
-                body.SelectNode(order[0]);
-                rec.HideUi = false;
-                rec.Caption("Edit Cross Sections", "The section editor opens on the selected node's section - the right way up");
-                FrameRecorder.CursorPos = new Vector2(0.55f * Screen.width, 0.55f * Screen.height);
-                yield return ClickPawButton(root, "Edit Cross Sections", () => body.EditCrossSectionsEvent());
-                yield return Imgui.WaitWindow(Win);
-                var ed = UnityEngine.Object.FindObjectOfType<CrossSectionEditor>();
-                ed._refit = true;
-                yield return Wait.Frames(2);
-                ed._win = new Rect(40f, 40f, ed._win.width, ed._win.height);
-                yield return Frames(20, null);
-                rec.HideUi = true;
-                Orbit(bb.center, viewYaw, viewPitch, viewDist, 30, shift);
-                rec.Caption("The editor follows the selected node", "Click a node's handle and the dialog shows that node's section");
-                foreach (int i in order)
-                {
-                    int ii = i;
-                    yield return MoveCursor(() => ScreenOf(NodeHandle(body, ii)), 12);
-                    FrameRecorder.CursorPressed = true;
-                    yield return Frames(3, null);
-                    body.SelectNode(i);
-                    yield return Frames(3, null);
-                    FrameRecorder.CursorPressed = false;
-                    yield return Frames(20, null);
-                }
-                ctx.Record("dialogAfterTour", ed._current);
-
-                // ---- sections travel with the craft ------------------------------------------------------------------
-                rec.Caption("Sections travel with the craft", "Loading a craft leaves your shared list alone: the list shows Built-in, Shared and Craft sections");
-                yield return ClickControl(Win, c => c.Label != null && c.Label.Contains("▾"), () => ed._dropOpen = true);
-                yield return Frames(80, null);
-                yield return ClickControl(Win, c => c.Label != null && c.Label.Contains("▾"), () => ed._dropOpen = false);
-                yield return Frames(10, null);
-
-                // ---- mirror editing, saved to the craft --------------------------------------------------------------
-                int mid = order[order.Count / 2];
-                yield return MoveCursor(() => ScreenOf(NodeHandle(body, mid)), 16);
-                FrameRecorder.CursorPressed = true;
-                yield return Frames(3, null);
-                body.SelectNode(mid);
-                yield return Frames(3, null);
-                FrameRecorder.CursorPressed = false;
-                yield return Frames(15, null);
-                rec.Caption("Mirror editing", "Left to right on: drag a vertex on one side and its mirror image follows");
-                yield return ClickControl(Win, c => c.Label != null && c.Label.Contains("Left to right"), () => ed.SetMirror(true, false));
-                yield return Frames(15, null);
-                // a top vertex on the left (master) half, off the centreline: the hump's shoulder
-                int v = Enumerable.Range(0, ed._verts.Count)
-                    .Where(i => ed._mapF[i] == 0 && ed._verts[i].y > 0.2f && ed._verts[i].x < -0.15f && ed._verts[i].x > -0.6f)
-                    .OrderByDescending(i => ed._verts[i].y).First();
-                Vector2 from = ed._verts[v], to = from + new Vector2(-0.03f, 0.16f);
-                yield return Drag(ed, v, from, to, 50);
-                yield return Frames(20, null);
-                rec.Caption("Save to craft", "The craft's own copy of the section updates; your shared sections are untouched");
-                yield return ClickControl(Win, c => c.Label == "Save to craft", () => ed.SaveToCraft());
-                yield return Frames(10, null);
-                FrameRecorder.CursorVisible = false;
-                yield return Frames(70, f => Orbit(bb.center, Mathf.LerpAngle(viewYaw, 205, Smooth(f)), Mathf.Lerp(viewPitch, 18, Smooth(f)), viewDist, 30, shift));
-                yield return Frames(30, null);
-
-                // ---- outro ----------------------------------------------------------------------------------------------
-                UnityEngine.Object.Destroy(ed.gameObject);
-                Paw.Close(root);
-                SpineSettings.Set(SpineSettings.HandleVis, SpineSettings.ClickBeforeDrag, false);
-                rec.Caption("Custom cross-sections for Spine", "Draw your own, trace a part, or cut them from a model - and the craft carries them");
-                yield return Frames(170, f => Orbit(bb.center, Mathf.LerpAngle(205, 330, f), Mathf.Lerp(18, 28, f), Mathf.Lerp(viewDist, 1.3f * bsize, Smooth(f)), 30, shift * (1 - Smooth(f))));
+                yield return Frames(15, f => Orbit(bb.center, 255, 24, 1.3f * bsize, 30));
+                rec.Caption("Plane body example", $"Cross-section outlines: {body.nodes.Count} nodes, each its own custom section");
+                SpineSettings.Set(SpineHandleVis.None, false, true);
+                yield return Frames(30, f => Orbit(bb.center, 255, 24, 1.3f * bsize, 30));
+                yield return Frames(360, f => Orbit(bb.center, 255 + 360 * Smooth(f), 24 - 14 * Mathf.Sin(Mathf.PI * f), 1.3f * bsize, 30));
+                yield return Frames(20, f => Orbit(bb.center, 255, 24, 1.3f * bsize, 30));
             }
             finally
             {
                 ctx.Record("frames", FrameRecorder.End());
                 Pointer(true);
                 Textures.Release();
-                var ed = UnityEngine.Object.FindObjectOfType<CrossSectionEditor>();
-                if (ed != null) UnityEngine.Object.Destroy(ed.gameObject);
-                var ow = UnityEngine.Object.FindObjectOfType<SpineOptionsWindow>();
-                if (ow != null) UnityEngine.Object.Destroy(ow.gameObject);
+                Paw.Close(root);
+                SpineSettings.Set(SpineHandleVis.Active, false, false);
             }
         }
 
