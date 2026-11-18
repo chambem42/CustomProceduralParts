@@ -591,7 +591,7 @@ namespace CustomProceduralParts.Showcase
             Rect? zero = ControlRect(Win, c => c.Kind == Imgui.Kind.Button && c.Label == "0");
             if (lr == null || zero == null) return null;
             float x0 = lr.Value.x + 6f, x1 = zero.Value.x - 124f;
-            return new Vector2(Mathf.Lerp(x0, x1, 0.5f * (v + 1f)), zero.Value.center.y);
+            return new Vector2(Mathf.Lerp(x0, x1, 0.5f * (v + 1f)), zero.Value.center.y - 8f);   // the slider sits above the button's centre
         }
 
         private static IEnumerator StretchSlider(CrossSectionEditor ed, float to, int n)
