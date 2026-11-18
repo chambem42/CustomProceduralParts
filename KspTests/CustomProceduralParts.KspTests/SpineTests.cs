@@ -1064,6 +1064,42 @@ namespace CustomProceduralParts.KspTests
             finally { snap.Restore(); Cleanup("ZzPlus"); }
         }
 
+        /// <summary>
+        /// An end closed to a wedge (zero width, some height: a boat's bow) shades like the sides that meet there:
+        /// each tip vertex's normal faces the way the one a ring back does, not the other side's.
+        /// </summary>
+        [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineTest")]
+        public static IEnumerator Editor_WedgeTipShadesLikeItsSides(TestContext ctx)
+        {
+            ProceduralShapeSpine s = Spine();
+            var snap = new Snapshot(s);
+            try
+            {
+                SpineNode tip = s.nodes[s.nodes.Count - 1];
+                tip.sizeH = 0f;
+                tip.sizeV = 0.8f;
+                s.UpdateShape(true);
+                yield return Wait.Frames(2);
+                Mesh m = s.PPart.SidesMesh;
+                Vector3[] v = m.vertices, nrm = m.normals;
+                float top = v.Max(p => p.y);
+                int per = v.Count(p => Mathf.Abs(p.y - top) < 1e-4f);
+                Assert.True(per > 2 && v.Length % per == 0, $"one ring of {per} at the tip, of {v.Length}");
+                int bad = 0;
+                var which = new List<string>();
+                for (int i = v.Length - per; i < v.Length; i++)
+                    if (Vector3.Dot(nrm[i], nrm[i - per]) <= 0f)
+                    {
+                        bad++;
+                        which.Add($"k{i - (v.Length - per)} at {v[i].ToString("F2")} n {nrm[i].ToString("F2")} back {v[i - per].ToString("F2")} n {nrm[i - per].ToString("F2")}");
+                    }
+                ctx.Record("tip", $"{per} vertices, {bad} facing away from their side");
+                ctx.Record("away", string.Join(" | ", which));
+                Assert.True(bad == 0, $"every tip normal faces its side's way ({bad} of {per} don't)");
+            }
+            finally { snap.Restore(); }
+        }
+
         // How far a world point is from the visible skin (the side mesh's triangles).
         private static float SkinDistance(ProceduralShapeSpine s, Vector3 world)
         {

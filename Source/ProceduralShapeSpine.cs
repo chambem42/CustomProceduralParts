@@ -2440,15 +2440,20 @@ namespace CustomProceduralParts
                     Vector3 radial = new Vector3(pos.x - ring.offsetX, 0f, pos.z - ring.offsetZ);   // from the ring centre
                     // A zero-size end node collapses its ring to a point, leaving no ring tangent or radial
                     // to build a normal from. Borrow both from the neighbouring ring so the tip shades like
-                    // the cone it closes instead of snapping to a fixed axis.
-                    if (tRing.sqrMagnitude < 1e-12f || radial.sqrMagnitude < 1e-12f)
+                    // the cone it closes instead of snapping to a fixed axis. A ring of zero width (or height)
+                    // is a line: its tangent runs along the line (sideways normals even at its top and
+                    // bottom), and its radial has no sideways part to say which side of the line is out (left
+                    // and right sit on top of each other), so a wedge's tip would light one side as the other
+                    // -- borrow both from the neighbour too.
+                    bool flat = ring.rH < 1e-4f || ring.rV < 1e-4f;
+                    if (flat || tRing.sqrMagnitude < 1e-12f || radial.sqrMagnitude < 1e-12f)
                     {
                         Ring nbr = (r == 0) ? above : below;
-                        if (tRing.sqrMagnitude < 1e-12f)
+                        if (flat || tRing.sqrMagnitude < 1e-12f)
                             tRing = (sd < 0) ? RingV(nbr, j) - RingV(nbr, j - 1)
                                   : (sd > 0) ? RingV(nbr, j + 1) - RingV(nbr, j)
                                              : RingV(nbr, j + 1) - RingV(nbr, j - 1);
-                        if (radial.sqrMagnitude < 1e-12f)
+                        if (flat || radial.sqrMagnitude < 1e-12f)
                         {
                             Vector3 np = RingV(nbr, j);
                             radial = new Vector3(np.x - nbr.offsetX, 0f, np.z - nbr.offsetZ);
