@@ -1179,7 +1179,11 @@ namespace CustomProceduralParts.KspTests
             }
             yield return Wait.Frames(2);
             Mesh m = s.PPart.SidesMesh;
-            ctx.Record("side mesh", $"{m.vertexCount} verts, {m.triangles.Length / 3} tris");
+            ctx.Record("side mesh", $"{m.vertexCount} verts, {m.triangles.Length / 3} tris, {m.indexFormat}");
+            // past 65535 vertices a 16-bit index wraps and the triangles land on the wrong vertices (a shattered skin)
+            Assert.True(m.vertexCount > 65535, $"this hull is past 16-bit indices ({m.vertexCount} vertices)");
+            Assert.True(m.indexFormat == UnityEngine.Rendering.IndexFormat.UInt32, $"so its mesh indexes with 32 bits ({m.indexFormat})");
+            Assert.True(m.triangles.Max() == m.vertexCount - 1, $"and its triangles reach its last vertex ({m.triangles.Max()} of {m.vertexCount})");
             MeshCollider[] cols = s.part.GetComponentsInChildren<MeshCollider>(true);
             ctx.Record("colliders", $"{cols.Length}, {cols.Sum(c => c.sharedMesh != null ? c.sharedMesh.vertexCount : 0)} verts");
 
@@ -1227,10 +1231,70 @@ namespace CustomProceduralParts.KspTests
             Bounds b = s.part.GetComponentsInChildren<Renderer>().Where(r => r.enabled && r is MeshRenderer).Select(r => r.bounds)
                 .Aggregate((x, y) => { x.Encapsulate(y); return x; });
             ctx.Record("bounds", b.ToString());
+            ctx.Record("spine axis (world)", s.part.transform.up.ToString("F2"));
+
+            // the inner wall, ring by ring: points outside the outer outline, edges turned back, and the wall thickness
+            var rings = s.BuildRings();
+            var stats = new List<string>();
+            int badRings = 0;
+            for (int r = 0; r < rings.Count; r++)
+            {
+                var outer = rings[r];
+                var inner = s.InnerRing(outer);
+                Vector2[] o = outer.outline, q = inner.outline;
+                int n = o.Length, outside = 0, flipped = 0, tiny = 0;
+                float minEdge = float.MaxValue, maxMove = 0f;
+                for (int j = 0; j < n; j++)
+                {
+                    if (!ProceduralShapeSpine.InOutline(o, q[j]) && (q[j] - o[j]).sqrMagnitude > 1e-10f) outside++;
+                    Vector2 e = o[(j + 1) % n] - o[j], f = q[(j + 1) % n] - q[j];
+                    if (Vector2.Dot(e, f) <= 0f && e.sqrMagnitude > 1e-12f) flipped++;
+                    minEdge = Mathf.Min(minEdge, e.magnitude);
+                    if (e.magnitude < 1e-3f) tiny++;
+                    maxMove = Mathf.Max(maxMove, (q[j] - o[j]).magnitude);
+                }
+                if (outside > 0 || flipped > 0 || r % 40 == 0)
+                    stats.Add($"r{r} y{outer.y:F3} rH{outer.rH:F3} rV{outer.rV:F3}: out {outside} flip {flipped} tiny {tiny} minEdge {minEdge * 1000f:F2}mm wall<= {maxMove * 1000f:F1}mm");
+                if (outside > 0 || flipped > 0) badRings++;
+            }
+            ctx.Record("inner bad rings", $"{badRings} of {rings.Count}");
+            {
+                // normals against the triangles they light, outer skin and inner, and how tall the triangles are
+                Mesh m = s.PPart.SidesMesh;
+                Vector3[] v = m.vertices, nn = m.normals;
+                int[] t = m.triangles;
+                int half = v.Length / 2;
+                int[] over90 = new int[2], over60 = new int[2], total = new int[2], facesIn = new int[2], normalsIn = new int[2];
+                for (int i = 0; i < t.Length; i += 3)
+                {
+                    Vector3 f = Vector3.Cross(v[t[i + 1]] - v[t[i]], v[t[i + 2]] - v[t[i]]);
+                    if (f.sqrMagnitude < 1e-14f) continue;
+                    int skin = t[i] >= half ? 1 : 0;
+                    Vector3 ns = nn[t[i]] + nn[t[i + 1]] + nn[t[i + 2]];
+                    float ang = Vector3.Angle(ns, f);
+                    total[skin]++;
+                    if (ang > 60f) over60[skin]++;
+                    if (ang > 90f) over90[skin]++;
+                    // which way is out: away from the spine axis (local y), sideways
+                    Vector3 c = (v[t[i]] + v[t[i + 1]] + v[t[i + 2]]) / 3f;
+                    Vector3 radial = new Vector3(c.x, 0f, c.z).normalized * (skin == 0 ? 1f : -1f);
+                    if (Vector3.Dot(f.normalized, radial) < -0.3f) facesIn[skin]++;
+                    if (Vector3.Dot(ns.normalized, radial) < -0.3f) normalsIn[skin]++;
+                }
+                ctx.Record("normals vs faces", $"outer {over60[0]}/{total[0]} >60deg, {over90[0]} >90; inner {over60[1]}/{total[1]} >60, {over90[1]} >90");
+                ctx.Record("pointing in", $"outer faces {facesIn[0]}, normals {normalsIn[0]}; inner faces {facesIn[1]}, normals {normalsIn[1]}");
+                ctx.Record("tri counts", $"{t.Length / 3} tris, {v.Length} verts, index {m.indexFormat}, largest index {t.Max()}");
+                var gaps = new List<float>();
+                for (int r = 1; r < rings.Count; r++) gaps.Add(rings[r].y - rings[r - 1].y);
+                gaps.Sort();
+                ctx.Record("ring spacing mm", $"min {gaps[0] * 1000f:F2} median {gaps[gaps.Count / 2] * 1000f:F2} max {gaps[gaps.Count - 1] * 1000f:F2}");
+            }
+            ctx.Record("inner", string.Join(" | ", stats.Take(60)));
+
             string dir = System.IO.Path.Combine(KSPUtil.ApplicationRootPath, "probe");
             System.IO.Directory.CreateDirectory(dir);
             int shot = 0;
-            foreach (var (yaw, pitch) in new[] { (90f, 15f), (0f, 15f), (135f, 50f), (45f, -25f) })
+            foreach (var (yaw, pitch) in new[] { (90f, 15f), (0f, 15f), (135f, 50f), (45f, -25f), (0f, 85f), (90f, -85f) })
             {
                 Vector3 pos = b.center - Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward * (1.6f * b.size.magnitude);
                 foreach (Camera c in Camera.allCameras)

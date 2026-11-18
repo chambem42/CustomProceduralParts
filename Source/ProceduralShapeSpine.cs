@@ -542,7 +542,8 @@ namespace CustomProceduralParts
             InnerMaxDiameter = InnerMinDiameter = -1f;
             Length = length;
 
-            GenerateSideMesh(rings);
+            List<Ring> innerRings = shellMode ? BuildInnerRings(rings) : null;   // the shell wall, once: mesh and volume
+            GenerateSideMesh(rings, innerRings);
             GenerateCapMesh(rings);          // emits empty end meshes when shellMode (open ends)
             GenerateColliderMesh(rings);
 
@@ -551,7 +552,7 @@ namespace CustomProceduralParts
 
             // Set volume last (the setter fires OnPartVolumeChanged / onEditorShipModified) so the
             // visible mesh is already updated even if a volume listener throws.
-            NominalVolume = CalculateVolume(rings);
+            NominalVolume = CalculateVolume(rings, innerRings);
             Volume = NominalVolume;
 
             PPart.UpdateProps();
@@ -1067,19 +1068,24 @@ namespace CustomProceduralParts
         // That respects the thickness clamp and can't double-count once the wall is a big fraction of the
         // radius (perimeter*thickness overcounts the corners there). Both the Volume property and this
         // override use this single definition so SeekVolume / volume bounds stay self-consistent.
-        private float CalculateVolume(List<Ring> rings)
+        // `inner`: the shell's inner rings, if already built (the mesh's), else built here. The inner skin lerps its
+        // vertices between them just as the outer does, so its midpoint section is their average too.
+        private float CalculateVolume(List<Ring> rings, List<Ring> inner = null)
         {
+            if (shellMode) inner ??= BuildInnerRings(rings);
+            float Area(int i) => shellMode ? Mathf.Max(0f, RingArea(rings[i]) - RingArea(inner[i])) : RingArea(rings[i]);
             float v = 0f;
-            float prevArea = SectionArea(rings[0]);
+            float prevArea = Area(0);
             for (int i = 1; i < rings.Count; i++)
             {
-                float area = SectionArea(rings[i]);
+                float area = Area(i);
                 // Simpson rather than trapezoid: the loft interpolates its vertices linearly between two
                 // rings, so the section area varies QUADRATICALLY along the segment (a product of two
                 // linear half-extents). The trapezoid rule over-reports every taper -- by 50% on a segment
                 // that closes to a point -- and a Linear segment isn't subdivided, so there's no ring
                 // density to hide it. Simpson is exact for a quadratic, so this matches the real mesh.
-                float midArea = SectionArea(MidRing(rings[i - 1], rings[i]));
+                float midArea = RingArea(MidRing(rings[i - 1], rings[i]));
+                if (shellMode) midArea = Mathf.Max(0f, midArea - RingArea(MidRing(inner[i - 1], inner[i])));
                 v += (rings[i].y - rings[i - 1].y) * (prevArea + 4f * midArea + area) / 6f;
                 prevArea = area;
             }
@@ -1099,11 +1105,6 @@ namespace CustomProceduralParts
             m.outline = o;
             return m;
         }
-
-        // Material cross-section of a ring: the full outline when solid, or the annulus (outer minus the
-        // clamped inner outline) in shell mode -- bounded by the outer area, so it never exceeds the solid.
-        private float SectionArea(Ring ring) =>
-            shellMode ? Mathf.Max(0f, RingArea(ring) - RingArea(InnerRing(ring))) : RingArea(ring);
 
         public override void AdjustDimensionBounds()
         {
@@ -2431,19 +2432,22 @@ namespace CustomProceduralParts
 
         private static void WriteToAppropriateMesh(UncheckedMesh mesh, Mesh iconMesh, Mesh normalMesh)
         {
-            if (HighLogic.LoadedScene == GameScenes.LOADING)
-                mesh.WriteTo(iconMesh);
-            else
-                mesh.WriteTo(normalMesh);
+            Mesh target = (HighLogic.LoadedScene == GameScenes.LOADING) ? iconMesh : normalMesh;
+            // A Unity mesh indexes its vertices with 16 bits unless told otherwise, and Procedural Parts' WriteTo
+            // doesn't: past 65535 vertices (a shell of many sections at many points) the triangles wrap round onto
+            // the wrong vertices and the skin shatters. Clear first: the format can't change under existing triangles.
+            target.Clear();
+            target.indexFormat = mesh.vertices.Length > 65535 ? UnityEngine.Rendering.IndexFormat.UInt32 : UnityEngine.Rendering.IndexFormat.UInt16;
+            mesh.WriteTo(target);
         }
 
-        private void GenerateSideMesh(List<Ring> rings)
+        private void GenerateSideMesh(List<Ring> rings, List<Ring> inner = null)
         {
             int rc = rings.Count;
 
             // Shell: the inner wall is the outline inset by the shell thickness (not coincident), so the
             // wall has real depth. Built once and reused for every ring's inner-skin vertex.
-            List<Ring> inner = shellMode ? BuildInnerRings(rings) : null;
+            if (shellMode) inner ??= BuildInnerRings(rings); else inner = null;
 
             // Hard-edge columns: outline indices where the section turns sharply (Rectangle/Mk2
             // corners). Detected globally (union over rings) so the loft topology stays a clean
