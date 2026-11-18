@@ -68,7 +68,7 @@ namespace CustomProceduralParts.Showcase
                 yield return CamMove(home, 130, 20, 9f, -0.02f, 25);
                 rec.Caption("Pick Spine in the Shape list", "Any Procedural Parts part: tank, structural, nose cone, crew tube...");
                 FrameRecorder.CursorPos = new Vector2(0.5f * Screen.width, 0.6f * Screen.height);
-                yield return PawChoose(part, "shapeName", () => pp.SetShapeName("Spine"));
+                yield return PawChoose(part, "shapeName", "Spine", () => pp.SetShapeName("Spine"));
                 yield return Frames(30, null);
 
                 rec.Caption("Length", "The Spine runs along the part; its first and last nodes sit at the ends");
@@ -85,20 +85,20 @@ namespace CustomProceduralParts.Showcase
                 yield return Frames(15, null);
 
                 rec.Caption("Section", "Built-in Ellipse, Rectangle, Mk2 and Mk3, or any custom section");
-                yield return PawChoose(part, "nodeProfileOpt", () => SetField(s, "nodeProfileOpt", "Rectangle"));
+                yield return PawChoose(part, "nodeProfileOpt", "Rectangle", () => SetField(s, "nodeProfileOpt", "Rectangle"));
                 yield return Frames(30, null);
-                yield return PawChoose(part, "nodeProfileOpt", () => SetField(s, "nodeProfileOpt", "Mk2"));
+                yield return PawChoose(part, "nodeProfileOpt", "Mk2", () => SetField(s, "nodeProfileOpt", "Mk2"));
                 yield return Frames(30, null);
-                yield return PawChoose(part, "nodeProfileOpt", () => SetField(s, "nodeProfileOpt", "Mk3"));
+                yield return PawChoose(part, "nodeProfileOpt", "Mk3", () => SetField(s, "nodeProfileOpt", "Mk3"));
                 yield return Frames(30, null);
-                yield return PawChoose(part, "nodeProfileOpt", () => SetField(s, "nodeProfileOpt", "Ellipse"));
+                yield return PawChoose(part, "nodeProfileOpt", "Ellipse", () => SetField(s, "nodeProfileOpt", "Ellipse"));
                 yield return Frames(15, null);
 
                 rec.Caption("Slope", "How the body runs from this node to the next: linear, concave, convex or waisted");
                 foreach (string slope in new[] { "Concave", "Convex", "Waisted", "Linear" })
                 {
                     string sl = slope;
-                    yield return PawChoose(part, "nodeSlopeOpt", () => SetField(s, "nodeSlopeOpt", sl));
+                    yield return PawChoose(part, "nodeSlopeOpt", sl, () => SetField(s, "nodeSlopeOpt", sl));
                     yield return Frames(28, null);
                 }
 
@@ -178,7 +178,7 @@ namespace CustomProceduralParts.Showcase
                 rec.Caption("Building a boat hull", "Start from three nodes: stern, midships, bow");
                 yield return Frames(60, f => Cam(home, 125 + 15 * f, 10, 19f, -0.02f));
                 rec.Caption("Start from a built-in", "The middle node to Rectangle, then Edit Cross Sections");
-                yield return PawChoose(part, "nodeProfileOpt", () => SetField(s, "nodeProfileOpt", "Rectangle"));
+                yield return PawChoose(part, "nodeProfileOpt", "Rectangle", () => SetField(s, "nodeProfileOpt", "Rectangle"));
                 yield return Frames(15, null);
                 yield return ClickPawButton(part, "Edit Cross Sections", () => s.EditCrossSectionsEvent());
                 yield return Imgui.WaitWindow(Win);
@@ -228,7 +228,7 @@ namespace CustomProceduralParts.Showcase
                     int ii = i;
                     yield return ClickWorld(() => NodeHandle(s, ii), () => s.SelectNode(ii));
                     yield return Frames(6, null);
-                    yield return PawChoose(part, "nodeProfileOpt", () => SetField(s, "nodeProfileOpt", Hull));
+                    yield return PawChoose(part, "nodeProfileOpt", Hull, () => SetField(s, "nodeProfileOpt", Hull));
                     yield return Frames(14, null);
                 }
                 UnityEngine.Object.Destroy(ed.gameObject);
@@ -261,7 +261,7 @@ namespace CustomProceduralParts.Showcase
                     s.nodePos = s.nodes[shoulder].position = Mathf.Lerp(sp0, 0.72f, t);
                 }, 45);
                 yield return PawFloat(part, s, "nodeOffsetV", s.nodes[shoulder].offsetV, 0.1f);
-                yield return PawChoose(part, "nodeSlopeOpt", () => SetField(s, "nodeSlopeOpt", "Convex"));
+                yield return PawChoose(part, "nodeSlopeOpt", "Convex", () => SetField(s, "nodeSlopeOpt", "Convex"));
                 yield return Frames(15, null);
                 yield return ClickWorld(() => NodeHandle(s, 0), () => s.SelectNode(0));
                 rec.Caption("A flat transom", "The stern node: a little narrower and shallower than midships");
@@ -372,16 +372,35 @@ namespace CustomProceduralParts.Showcase
             return Rect.MinMaxRect(a.x, Screen.height - b.y, b.x, Screen.height - a.y);
         }
 
-        // The cursor onto a choice field's right arrow, pressed, `act`, released.
-        private static IEnumerator PawChoose(Part part, string field, Action act)
+        // A choice field set to `option` through its own arrow buttons, tapped (the cursor on the arrow) until the PAW
+        // shows it. `act` sets it directly if the PAW can't.
+        private static IEnumerator PawChoose(Part part, string field, string option, Action act)
         {
             yield return Frames(3, null);
-            Rect? r = PawItemRect(part, field);
-            if (r != null) yield return MoveCursor(() => new Vector2(r.Value.xMax - 16f, r.Value.center.y), 18);
-            FrameRecorder.CursorPressed = true;
-            yield return Frames(5, null);
-            act();
-            FrameRecorder.CursorPressed = false;
+            PawItemRect(part, field);   // scrolled into view
+            UIPartActionChooseOption Item() => Paw.FindFieldItem<UIPartActionChooseOption>(part, field);
+            string[] Options(UIPartActionChooseOption i) => ((UI_ChooseOption)i.Field.uiControlEditor).options;
+            string Value(UIPartActionChooseOption i) => Convert.ToString(i.Field.GetValue(i.Field.host));
+            UIButtonToggle last = null;
+            for (int taps = 0; taps < 30 && Item() is UIPartActionChooseOption it; taps++)
+            {
+                int want = Array.IndexOf(Options(it), option), at = Array.IndexOf(Options(it), Value(it));
+                if (want < 0 || want == at) break;
+                bool up = want > at;
+                UIButtonToggle b = up ? it.inc : it.dec;
+                if (b != last) yield return MoveCursor(() => Center((RectTransform)b.transform), last == null ? 18 : 8);
+                last = b;
+                FrameRecorder.CursorPressed = true;
+                yield return Frames(3, null);
+                if (up) it.OnTap_inc(); else it.OnTap_dec();
+                FrameRecorder.CursorPressed = false;
+                yield return Frames(taps == 0 ? 6 : 5, null);
+            }
+            if (!(Item() is UIPartActionChooseOption done) || Value(done) != option)
+            {
+                Debug.LogWarning($"[SpineBasicsShowcase] {field}: the PAW didn't reach {option}; set directly");
+                act();
+            }
             yield return Frames(6, null);
         }
 
