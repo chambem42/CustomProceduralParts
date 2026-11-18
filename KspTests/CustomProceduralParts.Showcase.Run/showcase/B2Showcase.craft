@@ -449,8 +449,8 @@ PART
 		SPINE_NODE
 		{
 			position = 0.995816
-			sizeH = 0.254
-			sizeV = 0.313935
+			sizeH = 0
+			sizeV = 0
 			offsetV = -0.22897
 			offsetH = 0
 			tiltV = 0

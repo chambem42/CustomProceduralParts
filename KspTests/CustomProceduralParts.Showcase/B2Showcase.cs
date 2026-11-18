@@ -68,7 +68,7 @@ namespace CustomProceduralParts.Showcase
                 yield return Frames(150, f => Orbit(all.center, 205 + 35 * f, 26, 0.85f * size, 30));
 
                 // ---- down to the centre body: the rest removed, from the tips in --------------------------------------------
-                rec.Caption("Plane body example", "The centre body is one Spine part");
+                rec.Caption("Plane body example", "The center body is one Spine part");
                 List<Part> others = parts.Where(p => p != root)
                     .OrderByDescending(p => Mathf.Abs(p.transform.position.x - root.transform.position.x)).ToList();
                 int per = Mathf.Max(1, 90 / Mathf.Max(1, others.Count));
@@ -86,7 +86,7 @@ namespace CustomProceduralParts.Showcase
                 yield return Paw.Open(root);
                 Pointer(false);
                 yield return Frames(15, f => Orbit(bb.center, 255, 24, 1.3f * bsize, 30));
-                rec.Caption("Plane body example", $"Cross-section outlines: {body.nodes.Count} nodes, each its own custom section");
+                rec.Caption("Plane body example", $"Cross-section outlines: {body.nodes.Count} nodes, each with its own shape");
                 SpineSettings.Set(SpineHandleVis.None, false, true);
                 yield return Frames(30, f => Orbit(bb.center, 255, 24, 1.3f * bsize, 30));
                 yield return Frames(360, f => Orbit(bb.center, 255 + 360 * Smooth(f), 24 - 14 * Mathf.Sin(Mathf.PI * f), 1.3f * bsize, 30));

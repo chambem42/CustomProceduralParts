@@ -55,7 +55,7 @@ namespace CustomProceduralParts.Showcase
                 Vector3 home = part.transform.position;
 
                 // ---- a Procedural Parts part -------------------------------------------------------------------------
-                rec.Caption("Custom Procedural Parts", "Adds the Spine shape to every Procedural Parts part: a body lofted through a chain of cross-section nodes");
+                rec.Caption("Custom Procedural Parts", "Adds a Spine shape to every Procedural Parts part: a body shaped by a chain of cross-sections");
                 Cam(home, 110, 20, 9f, 0f);
                 yield return Frames(110, f => Cam(home, 110 + 40 * f, 20, 9f, 0f));
                 yield return FrameRecorder.Card("PAW Controls", 0f, 1f, 18, f => Cam(home, 150 + 4 * f, 20, 9f, 0f));
@@ -70,25 +70,25 @@ namespace CustomProceduralParts.Showcase
                 MovePaw(part, new Vector2(Screen.width - 440f, 40f));
                 Pointer(false);
                 yield return CamMove(home, 130, 20, 9f, -0.02f, 25);
-                rec.Caption("Pick Spine in the Shape list", "Any Procedural Parts part: tank, structural, nose cone, crew tube...");
+                rec.Caption("Pick Spine in the Shape list", "Works on any Procedural Parts part: tanks, structural parts, nose cones, crew tubes...");
                 FrameRecorder.CursorPos = new Vector2(0.5f * Screen.width, 0.6f * Screen.height);
                 yield return PawChoose(part, "shapeName", "Spine", () => pp.SetShapeName("Spine"));
                 yield return Frames(30, null);
 
-                rec.Caption("Length", "The Spine runs along the part; its first and last nodes sit at the ends");
+                rec.Caption("Length", "The body stretches between its first and last nodes");
                 yield return PawFloat(part, s, "length", 2f, 8f, f => Cam(home, 130, 20, Mathf.Lerp(9f, 15f, f), -0.02f));
                 yield return Frames(15, null);
 
                 // ---- one node's controls ----------------------------------------------------------------------------
-                rec.Caption("Nodes", "Each node is a cross-section: pick one with the Node slider (or click it), then set it up");
+                rec.Caption("Nodes", "Each node is one cross-section. Pick one with the Node slider (or click it), then shape it");
                 yield return PawFloat(part, s, "selectedNode", 0f, 1f);
                 yield return Frames(20, null);
-                rec.Caption("Width and height", "Per node, in metres");
+                rec.Caption("Width and height", "Set for each node, in meters");
                 yield return PawFloat(part, s, "nodeWidth", s.nodeWidth, 2.5f);
                 yield return PawFloat(part, s, "nodeHeight", s.nodeHeight, 2.0f);
                 yield return Frames(15, null);
 
-                rec.Caption("Section", "Built-in Ellipse, Rectangle, Mk2 and Mk3, or any custom section");
+                rec.Caption("Section", "The cross-section's shape: Ellipse, Rectangle, Mk2, Mk3, or one you draw");
                 yield return PawChoose(part, "nodeProfileOpt", "Rectangle", () => SetField(s, "nodeProfileOpt", "Rectangle"));
                 yield return Frames(30, null);
                 yield return PawChoose(part, "nodeProfileOpt", "Mk2", () => SetField(s, "nodeProfileOpt", "Mk2"));
@@ -98,7 +98,7 @@ namespace CustomProceduralParts.Showcase
                 yield return PawChoose(part, "nodeProfileOpt", "Ellipse", () => SetField(s, "nodeProfileOpt", "Ellipse"));
                 yield return Frames(15, null);
 
-                rec.Caption("Slope", "How the body runs from this node to the next: linear, concave, convex or waisted");
+                rec.Caption("Slope", "How the body curves from this node to the next");
                 foreach (string slope in new[] { "Concave", "Convex", "Waisted", "Linear" })
                 {
                     string sl = slope;
@@ -106,7 +106,7 @@ namespace CustomProceduralParts.Showcase
                     yield return Frames(28, null);
                 }
 
-                rec.Caption("Offsets and tilt", "Move a node's centre up/down or sideways; tilt its plane");
+                rec.Caption("Offsets and tilt", "Move a node up, down or sideways, or tilt it");
                 yield return PawFloat(part, s, "nodeOffsetV", 0f, 0.8f);
                 yield return PawFloat(part, s, "nodeOffsetH", 0f, -0.6f);
                 yield return PawFloat(part, s, "nodeTiltV", 0f, 25f);
@@ -115,7 +115,7 @@ namespace CustomProceduralParts.Showcase
                 yield return PawFloat(part, s, "nodeOffsetH", -0.6f, 0f);
                 yield return PawFloat(part, s, "nodeOffsetV", 0.8f, 0f);
 
-                rec.Caption("Add and remove nodes", "A new node copies the selected one, halfway to its neighbour");
+                rec.Caption("Add and remove nodes", "A new node copies the selected one, halfway to the next");
                 yield return ClickPawButton(part, "Add node in front", () => s.AddNodeInFrontEvent());
                 yield return Frames(30, null);
                 yield return ClickPawButton(part, "Add node behind", () => s.AddNodeBehindEvent());
@@ -129,7 +129,7 @@ namespace CustomProceduralParts.Showcase
                 FrameRecorder.CursorVisible = false;
                 yield return FrameRecorder.Card("Mouse Controls", 1f, 1f, 60);
                 yield return FrameRecorder.Card("Mouse Controls", 1f, 0f, 18);
-                rec.Caption("Handles", "Spine Options: show every node's handles, just the selected node's, or none");
+                rec.Caption("Handles", "In Spine Options: show handles on every node, only the selected one, or none");
                 yield return ClickPawButton(part, "Spine Options", () => s.SpineOptionsEvent());
                 yield return Imgui.WaitWindow(SpineOptionsWindow.Title);
                 var opts = UnityEngine.Object.FindObjectOfType<SpineOptionsWindow>();
@@ -142,21 +142,21 @@ namespace CustomProceduralParts.Showcase
                 yield return CamMove(home, 145, 20, 12.5f, -0.02f, 30);
 
                 int mid = 1;
-                rec.Caption("Click a node's circle to select it", "End nodes are arrows: they stay at the ends");
+                rec.Caption("Click a node's circle to select it", "The end nodes are arrows; they stay at the ends");
                 yield return ClickWorld(() => NodeHandle(s, 2), () => s.SelectNode(2));
                 yield return Frames(15, null);
                 yield return ClickWorld(() => NodeHandle(s, mid), () => s.SelectNode(mid));
                 yield return Frames(15, null);
-                rec.Caption("Drag the circle: up and down", "Left-drag moves the node's centre up or down");
+                rec.Caption("Drag the circle up and down", "Left-drag moves the node up or down");
                 float v0 = s.nodes[mid].offsetV;
                 yield return GizmoDrag(s, () => NodeHandle(s, mid), t => s.nodeOffsetV = s.nodes[mid].offsetV = v0 + 0.9f * Mathf.Sin(Mathf.PI * t), 70);
-                rec.Caption("Right-drag: sideways", "Right-drag moves it left or right");
+                rec.Caption("Right-drag: sideways", "Right-drag moves the node left or right");
                 float h0 = s.nodes[mid].offsetH;
                 yield return GizmoDrag(s, () => NodeHandle(s, mid), t => s.nodeOffsetH = s.nodes[mid].offsetH = h0 + 0.8f * Mathf.Sin(Mathf.PI * t), 70);
                 rec.Caption("Mouse wheel: taller or shorter", "Scroll over a node's circle");
                 yield return Wheel(s, mid, +1, 6);
                 yield return Wheel(s, mid, -1, 6);
-                rec.Caption("Edge diamonds: width and position", "Drag out or in to widen or narrow; along the body to move the node");
+                rec.Caption("Diamonds: width and position", "Drag out or in to change the width, or along the body to move the node");
                 float w0 = s.nodes[mid].sizeH, p0 = s.nodes[mid].position;
                 int side = NearSide(s, mid);
                 yield return GizmoDrag(s, () => Tip(s, mid, side), t =>
@@ -164,7 +164,7 @@ namespace CustomProceduralParts.Showcase
                     s.nodeWidth = s.nodes[mid].sizeH = w0 + 1.2f * Mathf.Sin(Mathf.PI * Mathf.Min(1f, 2f * t));
                     s.nodePos = s.nodes[mid].position = p0 + 0.15f * Mathf.Sin(Mathf.PI * Mathf.Max(0f, 2f * t - 1f));
                 }, 100);
-                rec.Caption("Section glyph: middle-click to cycle", "Above each node: its section's shape");
+                rec.Caption("Shape icon: middle-click to change", "The icon above each node shows its cross-section");
                 for (int k = 0; k < 4; k++)
                 {
                     yield return ClickWorld(() => Glyph(s, mid), () => s.CycleProfile(mid));
@@ -174,10 +174,42 @@ namespace CustomProceduralParts.Showcase
                 SpineSettings.Set(SpineHandleVis.Active, SpineSettings.ClickBeforeDrag, true);   // the hull keeps the outlines
                 yield return Frames(20, null);
 
+                // ---- attaching parts ------------------------------------------------------------------------------------
+                yield return FrameRecorder.Card("Attaching Parts", 0f, 1f, 18);
+                rec.Caption("", "");
+                yield return FrameRecorder.Card("Attaching Parts", 1f, 1f, 60);
+                yield return FrameRecorder.Card("Attaching Parts", 1f, 0f, 18);
+                rec.Caption("Attach parts anywhere on it", "A part turns to sit flat on whatever face is under it");
+                Part intakeTop = null, intakeSide = null;
+                {
+                    // one over the side, up and onto the top; another across the top and down onto the side
+                    RaycastHit? top = SkinAt(part, s, mid, 0.7f, Up(part)), sideHit = SkinAt(part, s, mid, -0.1f, Side(part));
+                    RaycastHit? side2 = SkinAt(part, s, mid, 0.7f, Side(part)), top2 = SkinAt(part, s, mid, -0.1f, Up(part));
+                    if (top != null && sideHit != null && side2 != null && top2 != null)
+                    {
+                        yield return AttachRadial(part, "airScoop", new[] { side2.Value, top.Value }, p => intakeTop = p);
+                        yield return Frames(15, null);
+                        yield return AttachRadial(part, "airScoop", new[] { top2.Value, sideHit.Value }, p => intakeSide = p);
+                    }
+                    else Debug.LogWarning("[SpineBasicsShowcase] no spots on the body for the intakes");
+                }
+                yield return Frames(20, null);
+                rec.Caption("Attached parts follow the shape", "Change the body and they stay on it");
+                yield return ClickWorld(() => NodeHandle(s, mid), () => s.SelectNode(mid));
+                yield return PawFloat(part, s, "nodeWidth", s.nodes[mid].sizeH, s.nodes[mid].sizeH + 1.25f);
+                yield return Frames(10, null);
+                yield return PawChoose(part, "nodeProfileOpt", "Rectangle", () => SetField(s, "nodeProfileOpt", "Rectangle"));
+                yield return Frames(20, null);
+                float va = s.nodes[mid].offsetV;
+                yield return GizmoDrag(s, () => NodeHandle(s, mid), t => s.nodeOffsetV = s.nodes[mid].offsetV = va + 0.8f * Mathf.Sin(Mathf.PI * t), 80);
+                yield return Frames(20, null);
+                FrameRecorder.CursorVisible = false;
+
                 // ---- a boat hull -------------------------------------------------------------------------------------
                 yield return FrameRecorder.Card("Building a Boat Hull", 0f, 1f, 18);
                 rec.Caption("", "");
                 FrameRecorder.Paused = true;   // a cut, under the card: a fresh three-node Spine
+                foreach (Part p in new[] { intakeTop, intakeSide }) Remove(p);
                 ResetHull(s, part);
                 s.SelectNode(1);
                 yield return Frames(8, null);
@@ -187,9 +219,9 @@ namespace CustomProceduralParts.Showcase
                 yield return FrameRecorder.Card("Building a Boat Hull", 1f, 1f, 60);
                 yield return FrameRecorder.Card("Building a Boat Hull", 1f, 0f, 18);
 
-                rec.Caption("Three nodes to start", "Stern, midships, bow");
+                rec.Caption("Three nodes to start", "Back, middle and front");
                 yield return Frames(60, f => Cam(home, 125 + 15 * f, 10, 19f, -0.02f));
-                rec.Caption("Start from a built-in", "The middle node to Rectangle, then Edit Cross Sections");
+                rec.Caption("Start from a built-in shape", "Set the middle node to Rectangle, then click Edit Cross Sections");
                 yield return PawChoose(part, "nodeProfileOpt", "Rectangle", () => SetField(s, "nodeProfileOpt", "Rectangle"));
                 yield return Frames(15, null);
                 yield return ClickPawButton(part, "Edit Cross Sections", () => s.EditCrossSectionsEvent());
@@ -200,15 +232,15 @@ namespace CustomProceduralParts.Showcase
                 ed._win = new Rect(30f, 30f, ed._win.width, ed._win.height);
                 yield return CamMove(home, 145, 12, 20f, 0.06f, 25);
 
-                rec.Caption("Mirror left to right", "Edit one side; the other follows");
+                rec.Caption("Mirror left to right", "Edit one side and the other follows");
                 yield return Hover(() => ControlRect(Win, c => c.Label != null && c.Label.Contains("Left to right"))?.center ?? FrameRecorder.CursorPos, 80);
                 yield return ClickControl(Win, c => c.Label != null && c.Label.Contains("Left to right"), () => ed.SetMirror(true, false));
                 yield return Frames(15, null);
-                rec.Caption("Drag a corner", "The bottom corner up and in: the chine");
+                rec.Caption("Drag a corner", "Move the bottom corner up and in");
                 int corner = Nearest(ed._verts, new Vector2(-1f, -1f));
                 yield return Drag(ed, corner, ed._verts[corner], new Vector2(-0.875f, -0.375f), 45);
                 yield return Frames(10, null);
-                rec.Caption("Double-click an edge to add a vertex", "Then drag it out: a rounder bottom");
+                rec.Caption("Double-click an edge to add a point", "Then drag it out for a rounder bottom");
                 Vector2 want = new Vector2(-0.45f, -0.7f);
                 int edge = NearestEdge(ed._verts, want);
                 Vector2 midPt = 0.5f * (ed._verts[edge] + ed._verts[(edge + 1) % ed._verts.Count]);
@@ -216,12 +248,12 @@ namespace CustomProceduralParts.Showcase
                 int added = Nearest(ed._verts, ed.Place(midPt));
                 yield return Drag(ed, added, ed._verts[added], new Vector2(-0.5f, -0.75f), 35);
                 yield return Frames(15, null);
-                rec.Caption("Stretch", "Pulls the halves apart with straight runs between: a flat keel (left for flat sides)");
+                rec.Caption("Stretch", "Adds a straight run through the middle: here a flat bottom (drag left for flat sides)");
                 yield return Hover(() => StretchAt(ed._stretch) ?? FrameRecorder.CursorPos, 80);
                 yield return StretchSlider(ed, 0.35f, 40);
                 yield return Frames(20, null);
 
-                rec.Caption("Save As", "A name, and it joins your shared sections, offered on every craft");
+                rec.Caption("Save As", "Give it a name and it's ready to use on any craft");
                 Rect? saveAs = ControlRect(Win, c => c.Label == "Save As");
                 if (saveAs != null) yield return MoveCursor(() => saveAs.Value.center - new Vector2(160f, 0f), 18);
                 FrameRecorder.CursorPressed = true;
@@ -237,7 +269,7 @@ namespace CustomProceduralParts.Showcase
                 yield return Frames(25, null);
                 Assert.NotNull(CrossSectionLibrary.Get(Hull), "the hull section saved");
 
-                rec.Caption("Every node: Boat hull", "Click a node, pick the section - the dialog follows the selected node");
+                rec.Caption("Use it on every node", "Click a node, then pick the shape; the editor shows the selected node");
                 for (int i = 0; i < s.nodes.Count; i++)
                 {
                     int ii = i;
@@ -249,24 +281,24 @@ namespace CustomProceduralParts.Showcase
                 UnityEngine.Object.Destroy(ed.gameObject);
                 yield return CamMove(home, 135, 8, 19f, -0.02f, 25);
 
-                rec.Caption("A node for the bow's shoulder", "Add node in front of midships");
+                rec.Caption("Add a node near the front", "Add node in front of the middle one");
                 yield return ClickWorld(() => NodeHandle(s, 1), () => s.SelectNode(1));
                 yield return ClickPawButton(part, "Add node in front", () => s.AddNodeInFrontEvent());
                 yield return Frames(20, null);
                 int bow = s.nodes.Count - 1, shoulder = bow - 1;
-                rec.Caption("Close the bow", "Drag the bow's edge diamond all the way in: the end closes to a stem");
+                rec.Caption("Bring the front to a point", "Drag the front node's diamond all the way in");
                 yield return ClickWorld(() => NodeHandle(s, bow), () => s.SelectNode(bow));
                 float bw0 = s.nodes[bow].sizeH;
                 int bside = NearSide(s, bow);
                 yield return GizmoDrag(s, () => Tip(s, bow, bside), t => s.nodeWidth = s.nodes[bow].sizeH = Mathf.Lerp(bw0, 0f, t), 50);
-                rec.Caption("Raise the bow", "Drag its centre up: the sheer rises and the forefoot lifts");
+                rec.Caption("Raise the front", "Drag its circle up");
                 float bv0 = s.nodes[bow].offsetV;
                 yield return GizmoDrag(s, () => NodeHandle(s, bow), t => s.nodeOffsetV = s.nodes[bow].offsetV = bv0 + 0.5f * t, 40);
-                rec.Caption("Rake the stem", "Node vertical tilt leans the bow's top forward");
+                rec.Caption("Lean the front forward", "With the node's vertical tilt");
                 yield return PawFloat(part, s, "nodeTiltV", 0f, 30f);
                 yield return Frames(10, null);
 
-                rec.Caption("Fill out the shoulder", "A wider node near the bow, and a full run from it to the stem");
+                rec.Caption("Round out the front", "A wider node near the front, and a full curve from it to the tip");
                 yield return ClickWorld(() => NodeHandle(s, shoulder), () => s.SelectNode(shoulder));
                 float sw0 = s.nodes[shoulder].sizeH, sp0 = s.nodes[shoulder].position;
                 int sside = NearSide(s, shoulder);
@@ -280,25 +312,15 @@ namespace CustomProceduralParts.Showcase
                 yield return PawChoose(part, "nodeSlopeOpt", "Concave", () => SetField(s, "nodeSlopeOpt", "Concave"));
                 yield return Frames(15, null);
                 yield return ClickWorld(() => NodeHandle(s, 0), () => s.SelectNode(0));
-                rec.Caption("A flat transom", "The stern node: a little narrower and shallower than midships");
+                rec.Caption("A flat back", "The back node: a little narrower and lower than the middle");
                 yield return PawFloat(part, s, "nodeWidth", s.nodes[0].sizeH, 2.5f);
                 yield return PawFloat(part, s, "nodeHeight", s.nodes[0].sizeV, 1.25f);
                 yield return PawFloat(part, s, "nodeOffsetV", s.nodes[0].offsetV, 0.1f);
                 FrameRecorder.CursorVisible = false;
                 yield return Frames(15, null);
 
-                // ---- options: smoother sections, outlines ---------------------------------------------------------------
-                rec.Caption("Spine Options: points per section", "More points for smoother curves");
-                FrameRecorder.CursorPos = new Vector2(0.6f * Screen.width, 0.5f * Screen.height);
-                yield return ClickPawButton(part, "Spine Options", () => s.SpineOptionsEvent());
-                yield return Imgui.WaitWindow(SpineOptionsWindow.Title);
-                opts = UnityEngine.Object.FindObjectOfType<SpineOptionsWindow>();
-                opts._win = new Rect(Screen.width - 440f - opts._win.width - 20f, 60f, opts._win.width, opts._win.height);
-                yield return Frames(10, null);
-                yield return ClickControl(SpineOptionsWindow.Title, c => c.Label == "48", () => s.SetSectionPoints(48));
-                yield return Frames(25, null);
-                yield return ClickControl(SpineOptionsWindow.Title, c => c.Label == "Close", () => UnityEngine.Object.Destroy(opts.gameObject));
-                FrameRecorder.CursorVisible = false;
+                // ---- the finished hull --------------------------------------------------------------------------------
+                rec.Caption("The finished hull", "");
                 rec.HideUi = true;
                 Bounds hb = Bounds(new[] { part });
                 ctx.Record("hull", hb.ToString());
@@ -323,6 +345,130 @@ namespace CustomProceduralParts.Showcase
                 if (ow != null) UnityEngine.Object.Destroy(ow.gameObject);
                 SpineSettings.SetMirror(false, false);
             }
+        }
+
+        // Straight up from the body, and sideways toward the camera, both square to the Spine's axis.
+        private static Vector3 Up(Part body) => (Vector3.up - Vector3.Project(Vector3.up, body.transform.up)).normalized;
+
+        private static Vector3 Side(Part body)
+        {
+            Vector3 v = EditorLogic.fetch.editorCamera.transform.position - body.transform.position;
+            v -= Vector3.Project(v, body.transform.up);
+            v -= Vector3.Project(v, Up(body));
+            return v.normalized;
+        }
+
+        // Where a ray from outside, in direction dir from the axis at node i (+ dy m along it), meets the body's collider.
+        private static RaycastHit? SkinAt(Part body, ProceduralShapeSpine s, int i, float dy, Vector3 dir)
+        {
+            Vector3 axisPt = body.transform.TransformPoint(new Vector3(0f, (s.nodes[i].position - 0.5f) * s.length + dy, 0f));
+            return BodyHit(body, new Ray(axisPt + 20f * dir, -dir));
+        }
+
+        private static RaycastHit? BodyHit(Part body, Ray ray)
+        {
+            RaycastHit? best = null;
+            foreach (Collider c in body.GetComponentsInChildren<Collider>())
+                if (c.enabled && c.Raycast(ray, out RaycastHit h, 100f) && (best == null || h.distance < best.Value.distance)) best = h;
+            return best;
+        }
+
+        // A part flat on a face: its attach node on the point, its attach direction into the body, its forward along
+        // the Spine (as the editor turns a part to the face under the cursor).
+        private static void FlatOn(Part p, Part body, Vector3 point, Vector3 normal)
+        {
+            Vector3 along = body.transform.up - Vector3.Project(body.transform.up, normal);
+            Quaternion rot = Quaternion.LookRotation(along, -normal) * Quaternion.Inverse(Quaternion.LookRotation(Vector3.forward, p.srfAttachNode.orientation));
+            p.transform.rotation = rot;
+            p.transform.position = point - rot * p.srfAttachNode.position;
+        }
+
+        // A stock part picked from the parts list, carried over the body through the `path` spots (the cursor's ray
+        // onto the body each frame: the part sits flat on whatever face is under it, as the editor shows a part being
+        // placed; off the body it floats on the ray), and attached at the last one with EditorLogic's own attach
+        // (private; its Attachment is internal).
+        private static IEnumerator AttachRadial(Part body, string partName, RaycastHit[] path, Action<Part> made)
+        {
+            Camera cam = EditorLogic.fetch.editorCamera;
+            AvailablePart ap = PartLoader.getPartInfoByName(partName);
+            Vector2 list = new Vector2(70f, 0.42f * Screen.height);   // the parts list
+            yield return MoveCursor(() => list, 22);
+            FrameRecorder.CursorPressed = true;
+            yield return Frames(4, null);
+            FrameRecorder.CursorPressed = false;
+            Part p = UnityEngine.Object.Instantiate(ap.partPrefab);
+            p.gameObject.SetActive(true);
+            p.name = ap.name;
+            p.persistentId = FlightGlobals.CheckPartpersistentId(p.persistentId, p, false, true);
+            p.InitializeModules();
+            p.SetHighlightType(Part.HighlightType.Disabled);
+            FlatOn(p, body, path[0].point, path[0].normal);
+            float depth = Vector3.Distance(cam.transform.position, path[0].point);
+
+            // the cursor: list -> each spot, resting a moment on each
+            var stops = new List<Vector2> { list };
+            foreach (RaycastHit h in path) stops.Add(ScreenOf(h.point));
+            for (int leg = 1; leg < stops.Count; leg++)
+            {
+                int n = leg == 1 ? 40 : 50;
+                for (int k = 1; k <= n; k++)
+                {
+                    Vector2 c = Vector2.Lerp(stops[leg - 1], stops[leg], B2Showcase.Smooth((float)k / n));
+                    FrameRecorder.CursorPos = c;
+                    Ray r = cam.ScreenPointToRay(new Vector3(c.x, Screen.height - c.y, 0f));
+                    if (BodyHit(body, r) is RaycastHit h) FlatOn(p, body, h.point, h.normal);
+                    else p.transform.position = r.GetPoint(depth) - p.transform.rotation * p.srfAttachNode.position;
+                    yield return Frames(1, null);
+                }
+                yield return Frames(leg == stops.Count - 1 ? 6 : 18, null);
+            }
+            RaycastHit end = path[path.Length - 1];
+            FlatOn(p, body, end.point, end.normal);
+            FrameRecorder.CursorPressed = true;
+            yield return Frames(4, null);
+            p.attachMode = AttachModes.SRF_ATTACH;
+            Type attT = typeof(EditorLogic).Assembly.GetType("Attachment");
+            object att = Activator.CreateInstance(attT, true);
+            void Set(string f, object v) => attT.GetField(f).SetValue(att, v);
+            Set("possible", true);
+            Set("mode", AttachModes.SRF_ATTACH);
+            Set("potentialParent", body);
+            Set("caller", p);
+            Set("callerPartNode", p.srfAttachNode);
+            Set("position", p.transform.position);
+            Set("rotation", p.transform.rotation);
+            typeof(EditorLogic).GetMethod("attachPart", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(EditorLogic.fetch, new[] { p, att });
+            EditorLogic.fetch.SetBackup();
+            GameEvents.onEditorPartEvent.Fire(ConstructionEventType.PartAttached, p);
+            GameEvents.onEditorShipModified.Fire(EditorLogic.fetch.ship);
+            p.SetHighlightType(Part.HighlightType.Disabled);
+            p.SetHighlight(false, false);
+            FrameRecorder.CursorPressed = false;
+            made(p);
+            yield return Frames(8, null);
+        }
+
+        // A PAW tap does nothing while an input lock holds the part menus' controls (a window's lock, taken while the
+        // real mouse happens to be over it): those locks off before the take's taps, named in the log.
+        private static void Unlock(string field)
+        {
+            if (InputLockManager.IsUnlocked(ControlTypes.TWEAKABLES_ANYCONTROL)) return;
+            var held = InputLockManager.lockStack.Where(kv => (kv.Value & (ulong)ControlTypes.TWEAKABLES_ANYCONTROL) != 0).Select(kv => kv.Key).ToList();
+            Debug.LogWarning($"[SpineBasicsShowcase] {field}: locks held the PAW ({string.Join(", ", held)}); cleared");
+            foreach (string id in held) InputLockManager.RemoveControlLock(id);
+        }
+
+        // A part taken off the craft and gone (EditorLogic.DeletePart trips over its node icons when nothing is held).
+        private static void Remove(Part p)
+        {
+            if (p == null) return;
+            if (p.parent != null) p.parent.children.Remove(p);
+            if (p.srfAttachNode != null) p.srfAttachNode.attachedPart = null;
+            p.parent = null;
+            p.transform.parent = null;
+            EditorLogic.fetch.ship.Remove(p);
+            UnityEngine.Object.Destroy(p.gameObject);
+            GameEvents.onEditorShipModified.Fire(EditorLogic.fetch.ship);
         }
 
         // Three Ellipse nodes for the hull: stern, midships, bow (9 m).
@@ -408,6 +554,7 @@ namespace CustomProceduralParts.Showcase
                 last = b;
                 FrameRecorder.CursorPressed = true;
                 yield return Frames(3, null);
+                Unlock(field);
                 if (up) it.OnTap_inc(); else it.OnTap_dec();
                 FrameRecorder.CursorPressed = false;
                 yield return Frames(taps == 0 ? 6 : 5, null);
@@ -477,6 +624,7 @@ namespace CustomProceduralParts.Showcase
                 last = b;
                 FrameRecorder.CursorPressed = true;
                 yield return Frames(3, Ease);
+                Unlock(field);
                 if (large) { if (up) e.OnTap_incLarge(); else e.OnTap_decLarge(); }
                 else { if (up) e.OnTap_incSmall(); else e.OnTap_decSmall(); }
                 FrameRecorder.CursorPressed = false;
