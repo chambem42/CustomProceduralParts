@@ -53,6 +53,7 @@ namespace CustomProceduralParts.Showcase
             float size = all.size.magnitude, bsize = bb.size.magnitude;
             Imgui.EnsurePatched();
             Textures.HoldNow();
+            Pointer(false);   // the real mouse mustn't hover the UI (part list tooltips)
             B9PanelOff();
             yield return Wait.Frames(20);
 
@@ -87,6 +88,7 @@ namespace CustomProceduralParts.Showcase
                 yield return Frames(30, f => Orbit(bb.center, Mathf.Lerp(265, viewYaw, Smooth(f)), Mathf.Lerp(24, viewPitch, Smooth(f)), Mathf.Lerp(1.3f * bsize, viewDist, Smooth(f)), 30, shift * Smooth(f)));
                 rec.HideUi = false;
                 yield return Paw.Open(root);
+                Pointer(false);
                 yield return Frames(4, null);
                 MovePaw(root, new Vector2(Screen.width - 420f, 70f));
                 rec.Caption("Spine Options", "A new PAW button opens the Spine's display options: handles, click-before-drag, and cross-section outlines");
@@ -183,6 +185,7 @@ namespace CustomProceduralParts.Showcase
             finally
             {
                 ctx.Record("frames", FrameRecorder.End());
+                Pointer(true);
                 Textures.Release();
                 var ed = UnityEngine.Object.FindObjectOfType<CrossSectionEditor>();
                 if (ed != null) UnityEngine.Object.Destroy(ed.gameObject);
@@ -390,6 +393,12 @@ namespace CustomProceduralParts.Showcase
         }
 
         // ---- camera --------------------------------------------------------------------------------------------------
+
+        // Every UI raycaster on or off: off, a scripted take ignores the real mouse.
+        internal static void Pointer(bool on)
+        {
+            foreach (var r in UnityEngine.Object.FindObjectsOfType<UnityEngine.EventSystems.BaseRaycaster>()) r.enabled = on;
+        }
 
         internal static float Smooth(float t) => t * t * (3 - 2 * t);
 

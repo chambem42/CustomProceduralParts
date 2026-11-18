@@ -43,6 +43,7 @@ namespace CustomProceduralParts.Showcase
             CrossSectionEditor._gridH = 300f;
             Imgui.EnsurePatched();
             Textures.HoldNow();
+            Pointer(false);   // the real mouse, wherever it is, mustn't hover the UI (part list tooltips)
             yield return Wait.Frames(20);
 
             string framesDir = Environment.GetEnvironmentVariable("CPP_SHOWCASE_DIR") is string sd && sd.Length > 0
@@ -63,6 +64,7 @@ namespace CustomProceduralParts.Showcase
                 yield return Paw.Open(part);
                 yield return Frames(4, null);
                 MovePaw(part, new Vector2(Screen.width - 440f, 40f));
+                Pointer(false);
                 yield return CamMove(home, 130, 20, 9f, -0.02f, 25);
                 rec.Caption("Pick Spine in the Shape list", "Any Procedural Parts part: tank, structural, nose cone, crew tube...");
                 FrameRecorder.CursorPos = new Vector2(0.5f * Screen.width, 0.6f * Screen.height);
@@ -70,16 +72,16 @@ namespace CustomProceduralParts.Showcase
                 yield return Frames(30, null);
 
                 rec.Caption("Length", "The Spine runs along the part; its first and last nodes sit at the ends");
-                yield return PawFloat(part, s, "length", 2f, 8f, 60, f => Cam(home, 130, 20, Mathf.Lerp(9f, 15f, f), -0.02f));
+                yield return PawFloat(part, s, "length", 2f, 8f, f => Cam(home, 130, 20, Mathf.Lerp(9f, 15f, f), -0.02f));
                 yield return Frames(15, null);
 
                 // ---- one node's controls ----------------------------------------------------------------------------
                 rec.Caption("Nodes", "Each node is a cross-section: pick one with the Node slider (or click it), then set it up");
-                yield return PawFloat(part, s, "selectedNode", 0f, 1f, 20, null, step: true);
+                yield return PawFloat(part, s, "selectedNode", 0f, 1f);
                 yield return Frames(20, null);
                 rec.Caption("Width and height", "Per node, in metres");
-                yield return PawFloat(part, s, "nodeWidth", s.nodeWidth, 2.6f, 40);
-                yield return PawFloat(part, s, "nodeHeight", s.nodeHeight, 2.0f, 40);
+                yield return PawFloat(part, s, "nodeWidth", s.nodeWidth, 2.5f);
+                yield return PawFloat(part, s, "nodeHeight", s.nodeHeight, 2.0f);
                 yield return Frames(15, null);
 
                 rec.Caption("Section", "Built-in Ellipse, Rectangle, Mk2 and Mk3, or any custom section");
@@ -101,13 +103,13 @@ namespace CustomProceduralParts.Showcase
                 }
 
                 rec.Caption("Offsets and tilt", "Move a node's centre up/down or sideways; tilt its plane");
-                yield return PawFloat(part, s, "nodeOffsetV", 0f, 0.8f, 35);
-                yield return PawFloat(part, s, "nodeOffsetH", 0f, -0.6f, 30);
-                yield return PawFloat(part, s, "nodeTiltV", 0f, 25f, 30);
+                yield return PawFloat(part, s, "nodeOffsetV", 0f, 0.8f);
+                yield return PawFloat(part, s, "nodeOffsetH", 0f, -0.6f);
+                yield return PawFloat(part, s, "nodeTiltV", 0f, 25f);
                 yield return Frames(15, null);
-                yield return PawFloat(part, s, "nodeTiltV", 25f, 0f, 20);
-                yield return PawFloat(part, s, "nodeOffsetH", -0.6f, 0f, 20);
-                yield return PawFloat(part, s, "nodeOffsetV", 0.8f, 0f, 20);
+                yield return PawFloat(part, s, "nodeTiltV", 25f, 0f);
+                yield return PawFloat(part, s, "nodeOffsetH", -0.6f, 0f);
+                yield return PawFloat(part, s, "nodeOffsetV", 0.8f, 0f);
 
                 rec.Caption("Add and remove nodes", "A new node copies the selected one, halfway to its neighbour");
                 yield return ClickPawButton(part, "Add node in front", () => s.AddNodeInFrontEvent());
@@ -246,7 +248,7 @@ namespace CustomProceduralParts.Showcase
                 float bv0 = s.nodes[bow].offsetV;
                 yield return GizmoDrag(s, () => NodeHandle(s, bow), t => s.nodeOffsetV = s.nodes[bow].offsetV = bv0 + 0.5f * t, 40);
                 rec.Caption("Rake the stem", "Node vertical tilt leans the bow's top forward");
-                yield return PawFloat(part, s, "nodeTiltV", 0f, 28f, 35);
+                yield return PawFloat(part, s, "nodeTiltV", 0f, 30f);
                 yield return Frames(10, null);
 
                 rec.Caption("Fill out the shoulder", "A wider node near the bow, a convex run into it");
@@ -258,14 +260,14 @@ namespace CustomProceduralParts.Showcase
                     s.nodeWidth = s.nodes[shoulder].sizeH = Mathf.Lerp(sw0, 2.6f, t);
                     s.nodePos = s.nodes[shoulder].position = Mathf.Lerp(sp0, 0.72f, t);
                 }, 45);
-                yield return PawFloat(part, s, "nodeOffsetV", s.nodes[shoulder].offsetV, 0.12f, 20);
+                yield return PawFloat(part, s, "nodeOffsetV", s.nodes[shoulder].offsetV, 0.1f);
                 yield return PawChoose(part, "nodeSlopeOpt", () => SetField(s, "nodeSlopeOpt", "Convex"));
                 yield return Frames(15, null);
                 yield return ClickWorld(() => NodeHandle(s, 0), () => s.SelectNode(0));
                 rec.Caption("A flat transom", "The stern node: a little narrower and shallower than midships");
-                yield return PawFloat(part, s, "nodeWidth", s.nodes[0].sizeH, 2.5f, 25);
-                yield return PawFloat(part, s, "nodeHeight", s.nodes[0].sizeV, 1.3f, 25);
-                yield return PawFloat(part, s, "nodeOffsetV", s.nodes[0].offsetV, 0.12f, 20);
+                yield return PawFloat(part, s, "nodeWidth", s.nodes[0].sizeH, 2.5f);
+                yield return PawFloat(part, s, "nodeHeight", s.nodes[0].sizeV, 1.25f);
+                yield return PawFloat(part, s, "nodeOffsetV", s.nodes[0].offsetV, 0.1f);
                 FrameRecorder.CursorVisible = false;
                 yield return Frames(15, null);
 
@@ -297,6 +299,7 @@ namespace CustomProceduralParts.Showcase
             finally
             {
                 ctx.Record("frames", FrameRecorder.End());
+                Pointer(true);
                 Textures.Release();
                 var ed = UnityEngine.Object.FindObjectOfType<CrossSectionEditor>();
                 if (ed != null) UnityEngine.Object.Destroy(ed.gameObject);
@@ -382,104 +385,73 @@ namespace CustomProceduralParts.Showcase
             yield return Frames(6, null);
         }
 
-        // The cursor onto a number field's slider, which it drags from `from` to `to` over n frames (`cam` each frame);
-        // `step`: whole numbers (the Node slider).
-        // A PAW float changed through its own controls, as a player would, so the PAW shows it: a range slider dragged;
-        // an edit field's arrow buttons tapped (large steps, then small) until the value is within its slider's span
-        // (one small step), then that slider dragged the rest of the way. The cursor follows the button or the slider's
-        // handle. `cam` gets the progress from `from` to `to`.
-        private static IEnumerator PawFloat(Part part, PartModule host, string field, float from, float to, int n, Action<float> cam = null, bool step = false)
+        // A PAW float changed through its own controls, as a player would, so the PAW shows it. An edit field: its
+        // arrow buttons tapped, large steps then small, while a tap gets closer to `to` (so `to` wants to be a whole
+        // number of steps away). A range slider (the Node one, whole steps): one click at `to`'s place on it. The
+        // cursor goes to the button or the slider. `cam` gets the progress from `from` to `to`, eased.
+        private static IEnumerator PawFloat(Part part, PartModule host, string field, float from, float to, Action<float> cam = null)
         {
             yield return Frames(3, null);
             PawItemRect(part, field);   // scrolled into view
             BaseField bf = host.Fields[field];
             float Cur() => Convert.ToSingle(bf.GetValue(host));
-            void Progress() => cam?.Invoke(Mathf.Approximately(from, to) ? 1f : Mathf.Clamp01((Cur() - from) / (to - from)));
+            float shown = 0f;
+            void Ease(float _)
+            {
+                if (cam == null) return;
+                float p = Mathf.Approximately(from, to) ? 1f : Mathf.Clamp01((Cur() - from) / (to - from));
+                shown += (p - shown) * 0.3f;
+                cam(shown);
+            }
 
             if (Paw.FindFieldItem<UIPartActionFieldItem>(part, field) is UIPartActionFloatRange)
             {
                 var ctl = (UI_FloatRange)bf.uiControlEditor;
                 UIPartActionFloatRange Item() => Paw.FindFieldItem<UIPartActionFloatRange>(part, field);
-                yield return MoveCursor(() => Handle(Item()?.slider), 18);
-                FrameRecorder.CursorPressed = true;
-                yield return Frames(4, null);
-                float start = Cur();
-                for (int k = 1; k <= n; k++)
+                float t = Mathf.InverseLerp(ctl.minValue, ctl.maxValue, to);
+                Vector2 At()
                 {
-                    float v = Mathf.Lerp(start, to, B2Showcase.Smooth((float)k / n));
-                    if (Item() is UIPartActionFloatRange it)
-                    {
-                        it.slider.normalizedValue = Mathf.InverseLerp(ctl.minValue, ctl.maxValue, v);
-                        FrameRecorder.CursorPos = Handle(it.slider);
-                    }
-                    Progress();
-                    yield return null;
+                    var c = new Vector3[4];
+                    ((RectTransform)Item().slider.transform).GetWorldCorners(c);
+                    Vector3 w = Vector3.Lerp(0.5f * (c[0] + c[1]), 0.5f * (c[2] + c[3]), t);
+                    Vector2 p = RectTransformUtility.WorldToScreenPoint(UIMasterController.Instance.uiCamera, w);
+                    return new Vector2(p.x, Screen.height - p.y);
                 }
+                yield return MoveCursor(At, 18);
+                FrameRecorder.CursorPressed = true;
+                yield return Frames(3, null);
+                Item().slider.normalizedValue = t;
                 FrameRecorder.CursorPressed = false;
-                yield return Frames(6, null);
+                yield return Frames(6, Ease);
                 yield break;
             }
 
             UIPartActionFloatEdit Edit() => Paw.FindFieldItem<UIPartActionFloatEdit>(part, field);
             if (Edit() == null) { SetField(host, field, to); yield break; }
             var ectl = (UI_FloatEdit)bf.uiControlEditor;
-            MethodInfo interval = typeof(UIPartActionFloatEdit).GetMethod("SliderInterval", BindingFlags.Instance | BindingFlags.NonPublic);
-            bool Span(out float lo, out float hi)
+            UIButtonToggle last = null;
+            for (int taps = 0; taps < 40; taps++)
             {
-                var args = new object[] { Cur(), 0f, 0f };
-                interval.Invoke(Edit(), args);
-                lo = (float)args[1];
-                hi = (float)args[2];
-                float eps = 1e-4f * Mathf.Max(1f, Mathf.Abs(hi - lo));
-                return to >= lo - eps && to <= hi + eps;
-            }
-            bool first = true;
-            for (int taps = 0; taps < 40 && !Span(out _, out _); taps++)
-            {
-                float rem = to - Cur();
-                bool up = rem > 0f, large = ectl.incrementLarge > 0f && Mathf.Abs(rem) >= ectl.incrementLarge;
+                float rem = to - Cur(), a = Mathf.Abs(rem);
+                bool large = ectl.incrementLarge > 0f && a >= ectl.incrementLarge - 1e-4f;
+                if (!large && !(ectl.incrementSmall > 0f && a > 0.5f * ectl.incrementSmall + 1e-4f)) break;
+                bool up = rem > 0f;
                 UIPartActionFloatEdit e = Edit();
                 UIButtonToggle b = large ? (up ? e.incLarge : e.decLarge) : (up ? e.incSmall : e.decSmall);
-                yield return MoveCursor(() => Center((RectTransform)b.transform), first ? 18 : 6);
-                first = false;
+                if (b != last) yield return MoveCursor(() => Center((RectTransform)b.transform), last == null ? 18 : 8);
+                last = b;
                 FrameRecorder.CursorPressed = true;
-                yield return Frames(3, null);
+                yield return Frames(3, Ease);
                 if (large) { if (up) e.OnTap_incLarge(); else e.OnTap_decLarge(); }
                 else { if (up) e.OnTap_incSmall(); else e.OnTap_decSmall(); }
-                Progress();
                 FrameRecorder.CursorPressed = false;
-                yield return Frames(5, null);
+                yield return Frames(6, Ease);
             }
-            if (Span(out float l0, out float h0) && h0 > l0)
-            {
-                yield return MoveCursor(() => Handle(Edit()?.slider), 14);
-                FrameRecorder.CursorPressed = true;
-                yield return Frames(3, null);
-                float start = Cur();
-                int m = Mathf.Max(8, n / 3);
-                for (int k = 1; k <= m; k++)
-                {
-                    float v = Mathf.Lerp(start, to, B2Showcase.Smooth((float)k / m));
-                    if (Edit() is UIPartActionFloatEdit e)
-                    {
-                        e.slider.normalizedValue = Mathf.InverseLerp(l0, h0, v);
-                        FrameRecorder.CursorPos = Handle(e.slider);
-                    }
-                    Progress();
-                    yield return null;
-                }
-                FrameRecorder.CursorPressed = false;
-            }
-            if (Mathf.Abs(Cur() - to) > 0.01f * Mathf.Max(1f, Mathf.Abs(to)))
-            {
-                Debug.LogWarning($"[SpineBasicsShowcase] {field}: the PAW got {Cur()}, wanted {to}; set directly");
-                SetField(host, field, to);
-            }
-            Progress();
-            yield return Frames(6, null);
+            Debug.Log($"[SpineBasicsShowcase] {field}: {from} -> {Cur()} (asked {to})");
+            yield return Frames(8, Ease);
         }
 
-        // A UI element's centre, or a slider's handle, in GUI coordinates (y down).
+        // A UI element's centre in GUI coordinates (y down).
         private static Vector2 Center(RectTransform rt)
         {
             var c = new Vector3[4];
@@ -487,9 +459,6 @@ namespace CustomProceduralParts.Showcase
             Vector2 p = RectTransformUtility.WorldToScreenPoint(UIMasterController.Instance.uiCamera, 0.5f * (c[0] + c[2]));
             return new Vector2(p.x, Screen.height - p.y);
         }
-
-        private static Vector2 Handle(UnityEngine.UI.Slider s) =>
-            s == null ? FrameRecorder.CursorPos : Center(s.handleRect != null ? s.handleRect : (RectTransform)s.transform);
 
         // ---- the gizmo ---------------------------------------------------------------------------------------------
 
