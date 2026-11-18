@@ -18,9 +18,9 @@ PART
 	part = proceduralTankLiquid_4000000001
 	partName = Part
 	persistentId = 2610069993
-	pos = 0,6,0
+	pos = 0,6,-0.275
 	attPos = 0,0,0
-	attPos0 = 0,6,0
+	attPos0 = 0,6,-0.275
 	rot = 0.707107,0,0,0.707107
 	attRot = 0,0,0,1
 	attRot0 = 0.707107,0,0,0.707107
@@ -434,7 +434,7 @@ PART
 	{
 		name = ProceduralShapeSpine
 		isEnabled = True
-		length = 7.31212
+		length = 6.76212
 		hScale = 1
 		vScale = 1
 		airfoil = False
@@ -456,9 +456,9 @@ PART
 		SPINE_NODE
 		{
 			position = 1
-			sizeH = 0.05
-			sizeV = 0.0866738
-			offsetV = -0.165468
+			sizeH = 0.876483
+			sizeV = 0.698583
+			offsetV = 0.0994446
 			offsetH = 0
 			tiltV = 0
 			tiltH = 0
@@ -470,142 +470,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.981681
-			sizeH = 0.0725862
-			sizeV = 0.0866738
-			offsetV = -0.165468
-			offsetH = 0
-			tiltV = 0
-			tiltH = 0
-			filletTop = 0
-			filletBottom = 0
-			stretch = 0
-			profile = Ellipse
-			slopeAbove = Linear
-		}
-		SPINE_NODE
-		{
-			position = 0.975216
-			sizeH = 0.206853
-			sizeV = 0.0866738
-			offsetV = -0.165468
-			offsetH = 0
-			tiltV = 0
-			tiltH = 0
-			filletTop = 0
-			filletBottom = 0
-			stretch = 0
-			profile = Ellipse
-			slopeAbove = Linear
-		}
-		SPINE_NODE
-		{
-			position = 0.974138
-			sizeH = 0.317586
-			sizeV = 0.0866738
-			offsetV = -0.165468
-			offsetH = 0
-			tiltV = 0
-			tiltH = 0
-			filletTop = 0
-			filletBottom = 0
-			stretch = 0
-			profile = Ellipse
-			slopeAbove = Linear
-		}
-		SPINE_NODE
-		{
-			position = 0.967672
-			sizeH = 0.354569
-			sizeV = 0.0866738
-			offsetV = -0.161529
-			offsetH = 0
-			tiltV = 0
-			tiltH = 0
-			filletTop = 0
-			filletBottom = 0
-			stretch = 0
-			profile = Ellipse
-			slopeAbove = Linear
-		}
-		SPINE_NODE
-		{
-			position = 0.965517
-			sizeH = 0.732414
-			sizeV = 0.0866738
-			offsetV = -0.161529
-			offsetH = 0
-			tiltV = 0
-			tiltH = 0
-			filletTop = 0
-			filletBottom = 0
-			stretch = 0
-			profile = Ellipse
-			slopeAbove = Linear
-		}
-		SPINE_NODE
-		{
-			position = 0.961207
-			sizeH = 0.789483
-			sizeV = 0.0945533
-			offsetV = -0.130011
-			offsetH = 0
-			tiltV = 0
-			tiltH = 0
-			filletTop = 0
-			filletBottom = 0
-			stretch = 0
-			profile = Ellipse
-			slopeAbove = Linear
-		}
-		SPINE_NODE
-		{
-			position = 0.960129
-			sizeH = 0.802651
-			sizeV = 0.196986
-			offsetV = -0.0472766
-			offsetH = 0
-			tiltV = 0
-			tiltH = 0
-			filletTop = 0
-			filletBottom = 0
-			stretch = 0
-			profile = Ellipse
-			slopeAbove = Linear
-		}
-		SPINE_NODE
-		{
-			position = 0.955819
-			sizeH = 0.824289
-			sizeV = 0.267901
-			offsetV = -0.0118192
-			offsetH = 0
-			tiltV = 0
-			tiltH = 0
-			filletTop = 0
-			filletBottom = 0
-			stretch = 0
-			profile = Ellipse
-			slopeAbove = Linear
-		}
-		SPINE_NODE
-		{
-			position = 0.949353
-			sizeH = 0.84
-			sizeV = 0.42549
-			offsetV = 0.027578
-			offsetH = 0
-			tiltV = 0
-			tiltH = 0
-			filletTop = 0
-			filletBottom = 0
-			stretch = 0
-			profile = Ellipse
-			slopeAbove = Linear
-		}
-		SPINE_NODE
-		{
-			position = 0.922414
+			position = 0.997439
 			sizeH = 0.88
 			sizeV = 0.724909
 			offsetV = 0.106372
@@ -620,7 +485,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.845905
+			position = 0.914707
 			sizeH = 0.98
 			sizeV = 0.945533
 			offsetV = 0.0827341
@@ -635,7 +500,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.807112
+			position = 0.872759
 			sizeH = 1.03
 			sizeV = 1.01645
 			offsetV = 0.0393972
@@ -650,7 +515,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.769397
+			position = 0.831976
 			sizeH = 1.08
 			sizeV = 1.28207
 			offsetV = -0.098493
@@ -665,7 +530,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.643319
+			position = 0.695644
 			sizeH = 1.09395
 			sizeV = 1.16446
 			offsetV = -0.106456
@@ -680,7 +545,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.537716
+			position = 0.581451
 			sizeH = 1.0605
 			sizeV = 1.09524
 			offsetV = -0.196986
@@ -695,7 +560,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.507543
+			position = 0.548824
 			sizeH = 0.97
 			sizeV = 1.05584
 			offsetV = -0.208805
@@ -710,7 +575,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.283405
+			position = 0.306456
 			sizeH = 0.58
 			sizeV = 0.70915
 			offsetV = -0.303358
@@ -725,7 +590,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.0743534
+			position = 0.080401
 			sizeH = 0.226634
 			sizeV = 0.158307
 			offsetV = -0.268218
@@ -740,7 +605,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.0625
+			position = 0.0675835
 			sizeH = 0.199965
 			sizeV = 0.118192
 			offsetV = -0.254795
@@ -755,7 +620,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.0614224
+			position = 0.0664182
 			sizeH = 0.197541
 			sizeV = 0.05
 			offsetV = -0.236383
