@@ -925,7 +925,30 @@ namespace CustomProceduralParts
                 }
             }
             segStart?.Add(rings.Count - 1);
+            foreach (Ring r in rings) if (Collapsed(r)) Unfold(r.outline, r.rH < r.rV ? 1 : 0);
             return rings;
+        }
+
+        // A ring squashed to a line (a wedge's stem) lays its outline along that line. Where the section goes back
+        // on itself in that direction (a keel lower off the centreline, a Mk3's bottom), the points double back and
+        // the strip into the stem folds inside out. Walk each side from one end of the line to the other and hold a
+        // point that would turn back on the furthest one so far: those triangles go flat instead of inverted.
+        private static void Unfold(Vector2[] o, int axis)
+        {
+            int n = o.Length;
+            if (n < 3) return;
+            int lo = 0, hi = 0;
+            for (int j = 1; j < n; j++)
+            {
+                if (o[j][axis] < o[lo][axis]) lo = j;
+                if (o[j][axis] > o[hi][axis]) hi = j;
+            }
+            if (lo == hi) return;
+            // lo -> hi going forward (counter-clockwise), then hi -> lo: up one side, down the other
+            float run = o[lo][axis];
+            for (int j = (lo + 1) % n; j != hi; j = (j + 1) % n) { run = Mathf.Max(run, o[j][axis]); o[j][axis] = run; }
+            run = o[hi][axis];
+            for (int j = (hi + 1) % n; j != lo; j = (j + 1) % n) { run = Mathf.Min(run, o[j][axis]); o[j][axis] = run; }
         }
 
         // A spine with any custom section pairs its rings' points by best fit (SectionAlignment): each node's unit
@@ -2437,31 +2460,15 @@ namespace CustomProceduralParts
                     Vector3 tRing = (sd < 0) ? RingV(ring, j) - RingV(ring, j - 1)
                                   : (sd > 0) ? RingV(ring, j + 1) - RingV(ring, j)
                                              : RingV(ring, j + 1) - RingV(ring, j - 1);
-                    Vector3 radial = new Vector3(pos.x - ring.offsetX, 0f, pos.z - ring.offsetZ);   // from the ring centre
-                    // A zero-size end node collapses its ring to a point, leaving no ring tangent or radial
-                    // to build a normal from. Borrow both from the neighbouring ring so the tip shades like
-                    // the cone it closes instead of snapping to a fixed axis. A ring of zero width (or height)
-                    // is a line: its tangent runs along the line (sideways normals even at its top and
-                    // bottom), and its radial has no sideways part to say which side of the line is out (left
-                    // and right sit on top of each other), so a wedge's tip would light one side as the other
-                    // -- borrow both from the neighbour too.
-                    bool flat = ring.rH < 1e-4f || ring.rV < 1e-4f;
-                    if (flat || tRing.sqrMagnitude < 1e-12f || radial.sqrMagnitude < 1e-12f)
-                    {
-                        Ring nbr = (r == 0) ? above : below;
-                        if (flat || tRing.sqrMagnitude < 1e-12f)
-                            tRing = (sd < 0) ? RingV(nbr, j) - RingV(nbr, j - 1)
-                                  : (sd > 0) ? RingV(nbr, j + 1) - RingV(nbr, j)
-                                             : RingV(nbr, j + 1) - RingV(nbr, j - 1);
-                        if (flat || radial.sqrMagnitude < 1e-12f)
-                        {
-                            Vector3 np = RingV(nbr, j);
-                            radial = new Vector3(np.x - nbr.offsetX, 0f, np.z - nbr.offsetZ);
-                        }
-                    }
+                    // Outlines run counter-clockwise, so spine x ring is the outward side the triangles below
+                    // face (they are wound from the same two edges). No flip toward the ring centre: where the
+                    // skin leans back over itself (a raked, narrowing bow) that test points normals inward.
                     Vector3 normal = Vector3.Cross(tSpine, tRing).normalized;
-                    if (Vector3.Dot(normal, radial) < 0f) normal = -normal;
-                    if (normal == Vector3.zero) normal = (radial.sqrMagnitude > 0f) ? radial.normalized : Vector3.right;
+                    if (normal == Vector3.zero)
+                    {
+                        Vector3 radial = new Vector3(pos.x - ring.offsetX, 0f, pos.z - ring.offsetZ);
+                        normal = (radial.sqrMagnitude > 0f) ? radial.normalized : Vector3.right;
+                    }
                     mesh.normals[idx] = normal;
                     Vector3 tan = (tRing.sqrMagnitude > 0f) ? tRing.normalized : Vector3.right;
                     mesh.tangents[idx] = new Vector4(tan.x, tan.y, tan.z, 1f);
@@ -2478,22 +2485,72 @@ namespace CustomProceduralParts
                 }
             }
 
+            // A ring of zero width or height (a wedge's stem, or a point) has no outline tangent of its own, and
+            // the strip into it is twisted: the ring before runs across, this one along a line. Normals of its
+            // own would differ from the ring before's, and each quad of that strip would crease along its
+            // diagonal (a sawtooth down the stem). Copy the nearest full ring's normals instead, so the strip
+            // shades as one smooth piece.
+            for (int r = 0; r < rc; r++)
+            {
+                if (!Collapsed(rings[r])) continue;
+                int from = -1;
+                for (int step = 1; step < rc && from < 0; step++)
+                {
+                    int lo = r - step, hi = r + step;
+                    // an end ring looks inward; a middle one prefers the ring below, as the triangles do
+                    if (lo >= 0 && !Collapsed(rings[lo])) from = lo;
+                    else if (hi < rc && !Collapsed(rings[hi])) from = hi;
+                }
+                if (from < 0) break;   // every ring collapsed: nothing better to copy
+                for (int k = 0; k <= K; k++)
+                {
+                    int idx = r * per + k, src = from * per + k;
+                    mesh.normals[idx] = mesh.normals[src];
+                    mesh.tangents[idx] = mesh.tangents[src];
+                    if (shellMode)
+                    {
+                        mesh.normals[innerBase + idx] = mesh.normals[innerBase + src];
+                        mesh.tangents[innerBase + idx] = mesh.tangents[innerBase + src];
+                    }
+                }
+            }
+
             int t = 0;
             for (int r = 0; r < rc - 1; r++)
             {
+                // The strip into a stem fans a wide ring onto a line, so its quads are badly twisted and a split on
+                // the long diagonal turns a thin triangle inside out. Split those on the short one.
+                bool stem = Collapsed(rings[r]) || Collapsed(rings[r + 1]);
                 for (int k = 0; k < K; k++)
                 {
                     int a = r * per + k;
                     int b = r * per + k + 1;
                     int cc = (r + 1) * per + k;
                     int d = (r + 1) * per + k + 1;
-                    mesh.triangles[t++] = a; mesh.triangles[t++] = cc; mesh.triangles[t++] = b;
-                    mesh.triangles[t++] = b; mesh.triangles[t++] = cc; mesh.triangles[t++] = d;
+                    bool ad = stem && (mesh.vertices[d] - mesh.vertices[a]).sqrMagnitude < (mesh.vertices[cc] - mesh.vertices[b]).sqrMagnitude;
+                    if (ad)
+                    {
+                        mesh.triangles[t++] = a; mesh.triangles[t++] = cc; mesh.triangles[t++] = d;
+                        mesh.triangles[t++] = a; mesh.triangles[t++] = d; mesh.triangles[t++] = b;
+                    }
+                    else
+                    {
+                        mesh.triangles[t++] = a; mesh.triangles[t++] = cc; mesh.triangles[t++] = b;
+                        mesh.triangles[t++] = b; mesh.triangles[t++] = cc; mesh.triangles[t++] = d;
+                    }
                     if (shellMode)   // inner skin: reversed winding
                     {
                         int ia = innerBase + a, ib = innerBase + b, ic = innerBase + cc, id = innerBase + d;
-                        mesh.triangles[t++] = ia; mesh.triangles[t++] = ib; mesh.triangles[t++] = ic;
-                        mesh.triangles[t++] = ib; mesh.triangles[t++] = id; mesh.triangles[t++] = ic;
+                        if (ad)
+                        {
+                            mesh.triangles[t++] = ia; mesh.triangles[t++] = id; mesh.triangles[t++] = ic;
+                            mesh.triangles[t++] = ia; mesh.triangles[t++] = ib; mesh.triangles[t++] = id;
+                        }
+                        else
+                        {
+                            mesh.triangles[t++] = ia; mesh.triangles[t++] = ib; mesh.triangles[t++] = ic;
+                            mesh.triangles[t++] = ib; mesh.triangles[t++] = id; mesh.triangles[t++] = ic;
+                        }
                     }
                 }
             }
@@ -2504,6 +2561,8 @@ namespace CustomProceduralParts
             RaiseChangeTextureScale("sides", PPart.legacyTextureHandler.SidesMaterial, new Vector2(avgCirc, length));
             WriteToAppropriateMesh(mesh, PPart.SidesIconMesh, SidesMesh);
         }
+
+        private static bool Collapsed(Ring ring) => ring.rH < 1e-4f || ring.rV < 1e-4f;
 
         // Cumulative perimeter fraction at each outline index (length Sides+1, [0]=0 .. [Sides]=1), so the
         // side texture U maps by arc length -> uniform texel density on flats and curves alike.

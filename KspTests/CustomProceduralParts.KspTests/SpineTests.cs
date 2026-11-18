@@ -1073,6 +1073,7 @@ namespace CustomProceduralParts.KspTests
         {
             ProceduralShapeSpine s = Spine();
             var snap = new Snapshot(s);
+            float length0 = s.length;
             try
             {
                 SpineNode tip = s.nodes[s.nodes.Count - 1];
@@ -1096,8 +1097,54 @@ namespace CustomProceduralParts.KspTests
                 ctx.Record("tip", $"{per} vertices, {bad} facing away from their side");
                 ctx.Record("away", string.Join(" | ", which));
                 Assert.True(bad == 0, $"every tip normal faces its side's way ({bad} of {per} don't)");
+
+                // The demo's bow: a hull run narrowing (Concave) to a raised, forward-leaning wedge. Each vertex
+                // normal of the strip at the tip should lie close to the faces it shades, or the strip's two
+                // triangle halves light differently (a sawtooth along the stem).
+                var cases = new (string name, string section, float tilt, SpineSlope slope)[]
+                {
+                    ("ellipse", "Ellipse", 0f, SpineSlope.Linear),
+                    ("ellipse lean", "Ellipse", 30f, SpineSlope.Concave),
+                    ("rect lean", "Rectangle", 30f, SpineSlope.Concave),
+                    ("mk3 lean", "Mk3", 30f, SpineSlope.Concave),
+                };
+                var fails = new List<string>();
+                foreach (var c in cases)
+                {
+                    s.length = 9f;   // the demo hull's
+                    s.nodes.Clear();
+                    s.nodes.Add(new SpineNode(0f, 2.5f, 1.25f) { section = c.section, offsetV = 0.1f });
+                    s.nodes.Add(new SpineNode(0.72f, 2.6f, 1.6f) { section = c.section, offsetV = 0.1f, slopeAbove = c.slope });
+                    s.nodes.Add(new SpineNode(1f, 0f, 1.2f) { section = c.section, offsetV = 0.5f, tiltV = c.tilt });
+                    s.UpdateShape(true);
+                    yield return Wait.Frames(1);
+                    Mesh mm = s.PPart.SidesMesh;
+                    Vector3[] vv = mm.vertices, nn = mm.normals;
+                    int[] tri = mm.triangles;
+                    int stride = tri[1] - tri[0];   // the first quad's (a, next ring's a, b): one ring apart
+                    int rings = vv.Length / stride;
+                    // across the stem strip: each tip normal is the one a ring back, so no quad creases
+                    float strip = 0f;
+                    for (int i = vv.Length - stride; i < vv.Length; i++) strip = Mathf.Max(strip, Vector3.Angle(nn[i], nn[i - stride]));
+                    // and no triangle turned inside out (a fold: the stem's points doubling back), which faces
+                    // against the normals it is lit with. The strip into the stem fans a wide ring onto a line, so
+                    // its faces are steep against their normals by construction; a fold is the opposite way round.
+                    float against = 0f;
+                    string worst = "";
+                    for (int i = 0; i < tri.Length; i += 3)
+                    {
+                        int a = tri[i], b = tri[i + 1], d = tri[i + 2];
+                        Vector3 f = Vector3.Cross(vv[b] - vv[a], vv[d] - vv[a]);
+                        if (f.magnitude < 1e-5f) continue;
+                        float ang = Vector3.Angle(nn[a] + nn[b] + nn[d], f);
+                        if (ang > against) { against = ang; worst = $"r{a / stride} k{a % stride} face {f.normalized.ToString("F2")} tri {vv[a].ToString("F3")} {vv[b].ToString("F3")} {vv[d].ToString("F3")}"; }
+                    }
+                    ctx.Record(c.name, $"{rings} rings; stem strip {strip:F1} deg; worst face vs its normals {against:F1} deg at {worst}");
+                    if (strip > 1f || against > 120f) fails.Add($"{c.name}: strip {strip:F1}, vs face {against:F1}");
+                }
+                Assert.True(fails.Count == 0, "stem shades smoothly, no normal against its faces: " + string.Join(", ", fails));
             }
-            finally { snap.Restore(); }
+            finally { s.length = length0; snap.Restore(); }
         }
 
         // How far a world point is from the visible skin (the side mesh's triangles).
