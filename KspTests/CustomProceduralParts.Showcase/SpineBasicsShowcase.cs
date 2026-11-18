@@ -58,6 +58,10 @@ namespace CustomProceduralParts.Showcase
                 rec.Caption("Custom Procedural Parts", "Adds the Spine shape to every Procedural Parts part: a body lofted through a chain of cross-section nodes");
                 Cam(home, 110, 20, 9f, 0f);
                 yield return Frames(110, f => Cam(home, 110 + 40 * f, 20, 9f, 0f));
+                yield return FrameRecorder.Card("PAW Controls", 0f, 1f, 18, f => Cam(home, 150 + 4 * f, 20, 9f, 0f));
+                rec.Caption("", "");
+                yield return FrameRecorder.Card("PAW Controls", 1f, 1f, 60);
+                yield return FrameRecorder.Card("PAW Controls", 1f, 0f, 18);
 
                 // ---- the Shape selector: Spine ------------------------------------------------------------------------
                 rec.HideUi = false;
@@ -120,6 +124,11 @@ namespace CustomProceduralParts.Showcase
                 yield return Frames(25, null);
 
                 // ---- the gizmo -----------------------------------------------------------------------------------------
+                yield return FrameRecorder.Card("Mouse Controls", 0f, 1f, 18);
+                rec.Caption("", "");
+                FrameRecorder.CursorVisible = false;
+                yield return FrameRecorder.Card("Mouse Controls", 1f, 1f, 60);
+                yield return FrameRecorder.Card("Mouse Controls", 1f, 0f, 18);
                 rec.Caption("Handles", "Spine Options: show every node's handles, just the selected node's, or none");
                 yield return ClickPawButton(part, "Spine Options", () => s.SpineOptionsEvent());
                 yield return Imgui.WaitWindow(SpineOptionsWindow.Title);
@@ -166,16 +175,19 @@ namespace CustomProceduralParts.Showcase
                 yield return Frames(20, null);
 
                 // ---- a boat hull -------------------------------------------------------------------------------------
-                FrameRecorder.Paused = true;   // a cut: a fresh three-node Spine
+                yield return FrameRecorder.Card("Building a Boat Hull", 0f, 1f, 18);
                 rec.Caption("", "");
+                FrameRecorder.Paused = true;   // a cut, under the card: a fresh three-node Spine
                 ResetHull(s, part);
                 s.SelectNode(1);
                 yield return Frames(8, null);
                 Cam(home, 125, 10, 19f, -0.02f);
                 yield return Frames(4, null);
                 FrameRecorder.Paused = false;
+                yield return FrameRecorder.Card("Building a Boat Hull", 1f, 1f, 60);
+                yield return FrameRecorder.Card("Building a Boat Hull", 1f, 0f, 18);
 
-                rec.Caption("Building a boat hull", "Start from three nodes: stern, midships, bow");
+                rec.Caption("Three nodes to start", "Stern, midships, bow");
                 yield return Frames(60, f => Cam(home, 125 + 15 * f, 10, 19f, -0.02f));
                 rec.Caption("Start from a built-in", "The middle node to Rectangle, then Edit Cross Sections");
                 yield return PawChoose(part, "nodeProfileOpt", "Rectangle", () => SetField(s, "nodeProfileOpt", "Rectangle"));
@@ -189,6 +201,7 @@ namespace CustomProceduralParts.Showcase
                 yield return CamMove(home, 145, 12, 20f, 0.06f, 25);
 
                 rec.Caption("Mirror left to right", "Edit one side; the other follows");
+                yield return Hover(() => ControlRect(Win, c => c.Label != null && c.Label.Contains("Left to right"))?.center ?? FrameRecorder.CursorPos, 80);
                 yield return ClickControl(Win, c => c.Label != null && c.Label.Contains("Left to right"), () => ed.SetMirror(true, false));
                 yield return Frames(15, null);
                 rec.Caption("Drag a corner", "The bottom corner up and in: the chine");
@@ -204,6 +217,7 @@ namespace CustomProceduralParts.Showcase
                 yield return Drag(ed, added, ed._verts[added], new Vector2(-0.5f, -0.75f), 35);
                 yield return Frames(15, null);
                 rec.Caption("Stretch", "Pulls the halves apart with straight runs between: a flat keel (left for flat sides)");
+                yield return Hover(() => StretchAt(ed._stretch) ?? FrameRecorder.CursorPos, 80);
                 yield return StretchSlider(ed, 0.35f, 40);
                 yield return Frames(20, null);
 
@@ -218,6 +232,7 @@ namespace CustomProceduralParts.Showcase
                     ed._saveAsName = Hull.Substring(0, k);
                     yield return Frames(3, null);
                 }
+                yield return Hover(() => ControlRect(Win, c => c.Label == "Save As")?.center ?? FrameRecorder.CursorPos, 75);
                 yield return ClickControl(Win, c => c.Label == "Save As", () => ed.SaveTo(Hull, false));
                 yield return Frames(25, null);
                 Assert.NotNull(CrossSectionLibrary.Get(Hull), "the hull section saved");
@@ -251,7 +266,7 @@ namespace CustomProceduralParts.Showcase
                 yield return PawFloat(part, s, "nodeTiltV", 0f, 30f);
                 yield return Frames(10, null);
 
-                rec.Caption("Fill out the shoulder", "A wider node near the bow, a convex run into it");
+                rec.Caption("Fill out the shoulder", "A wider node near the bow, and a full run from it to the stem");
                 yield return ClickWorld(() => NodeHandle(s, shoulder), () => s.SelectNode(shoulder));
                 float sw0 = s.nodes[shoulder].sizeH, sp0 = s.nodes[shoulder].position;
                 int sside = NearSide(s, shoulder);
@@ -261,7 +276,8 @@ namespace CustomProceduralParts.Showcase
                     s.nodePos = s.nodes[shoulder].position = Mathf.Lerp(sp0, 0.72f, t);
                 }, 45);
                 yield return PawFloat(part, s, "nodeOffsetV", s.nodes[shoulder].offsetV, 0.1f);
-                yield return PawChoose(part, "nodeSlopeOpt", "Convex", () => SetField(s, "nodeSlopeOpt", "Convex"));
+                // the run narrows to the bow: Concave (the blend's name) keeps it full till the stem, a convex look
+                yield return PawChoose(part, "nodeSlopeOpt", "Concave", () => SetField(s, "nodeSlopeOpt", "Concave"));
                 yield return Frames(15, null);
                 yield return ClickWorld(() => NodeHandle(s, 0), () => s.SelectNode(0));
                 rec.Caption("A flat transom", "The stern node: a little narrower and shallower than midships");
@@ -555,13 +571,33 @@ namespace CustomProceduralParts.Showcase
 
         // The editor's Stretch slider dragged to `to`. The slider has no label of its own: it runs from under the
         // mirror toggles (its row's label is as wide as theirs) to its value label (110 px) before the "0" button.
-        private static IEnumerator StretchSlider(CrossSectionEditor ed, float to, int n)
+        // The cursor onto something, resting there till its tooltip shows (the Spine windows' tips follow the drawn
+        // cursor while it's here), then the tips off again.
+        private static IEnumerator Hover(Func<Vector2> at, int n)
+        {
+            yield return MoveCursor(at, 18);
+            for (int i = 0; i < n; i++)
+            {
+                SpineTips.PointerOverride = FrameRecorder.CursorPos;
+                yield return Frames(1, null);
+            }
+            SpineTips.PointerOverride = FrameRecorder.TipsOff;
+        }
+
+        // The Stretch slider's handle at value v (-1..1), on screen.
+        private static Vector2? StretchAt(float v)
         {
             Rect? lr = ControlRect(Win, c => c.Label != null && c.Label.Contains("Left to right"));
             Rect? zero = ControlRect(Win, c => c.Kind == Imgui.Kind.Button && c.Label == "0");
-            if (lr == null || zero == null) { ed.SetStretch(to); yield break; }
-            float x0 = lr.Value.x + 6f, x1 = zero.Value.x - 124f, y = zero.Value.center.y;
-            Func<float, Vector2> at = v => new Vector2(Mathf.Lerp(x0, x1, 0.5f * (v + 1f)), y);
+            if (lr == null || zero == null) return null;
+            float x0 = lr.Value.x + 6f, x1 = zero.Value.x - 124f;
+            return new Vector2(Mathf.Lerp(x0, x1, 0.5f * (v + 1f)), zero.Value.center.y);
+        }
+
+        private static IEnumerator StretchSlider(CrossSectionEditor ed, float to, int n)
+        {
+            if (StretchAt(0f) == null) { ed.SetStretch(to); yield break; }
+            Func<float, Vector2> at = v => StretchAt(v) ?? FrameRecorder.CursorPos;
             float from = ed._stretch;
             yield return MoveCursor(() => at(from), 18);
             FrameRecorder.CursorPressed = true;

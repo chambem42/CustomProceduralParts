@@ -61,7 +61,10 @@ namespace CustomProceduralParts.Showcase
             try
             {
                 // ---- the whole craft ------------------------------------------------------------------------------------
+                Orbit(all.center, 205, 26, 0.85f * size, 30);
+                yield return FrameRecorder.Card("Airplane Example", 1f, 1f, 60);
                 rec.Caption("Plane body example", "");
+                yield return FrameRecorder.Card("Airplane Example", 1f, 0f, 18);
                 yield return Frames(150, f => Orbit(all.center, 205 + 35 * f, 26, 0.85f * size, 30));
 
                 // ---- down to the centre body: the rest removed, from the tips in --------------------------------------------
@@ -365,6 +368,7 @@ namespace CustomProceduralParts.Showcase
             instance = go.AddComponent<FrameRecorder>();
             instance.dir = dir;
             TestRunner.HideOverlay = true;
+            SpineTips.PointerOverride = TipsOff;   // the real mouse shows no tooltips; Hover moves the pointer
             GameEvents.onHideUI.Fire();
             instance.uiHidden = true;
             instance.StartCoroutine(instance.Capture());
@@ -376,7 +380,9 @@ namespace CustomProceduralParts.Showcase
             if (instance == null) return 0;
             int n = instance.frame;
             CursorVisible = CursorPressed = Paused = false;
+            CardAlpha = 0f;
             TestRunner.HideOverlay = false;
+            SpineTips.PointerOverride = null;
             GameEvents.onShowUI.Fire();
             Destroy(instance.gameObject);
             instance = null;
@@ -384,6 +390,29 @@ namespace CustomProceduralParts.Showcase
         }
 
         public void Caption(string t, string l) { title = t; line = l; }
+
+        /// <summary>Where the Spine windows' tooltips think the pointer is while nothing is hovered: nowhere.</summary>
+        public static readonly Vector2 TipsOff = new Vector2(-10000f, -10000f);
+
+        // A full-screen title card over the frame, at `CardAlpha` (0 hidden, 1 opaque); the caption bar hidden under it.
+        public static string CardText;
+        public static float CardAlpha;
+        private GUIStyle cardStyle;
+
+        /// <summary>The card faded from `a0` to `a1` over n frames (n 0: set at once), `each` called every frame.</summary>
+        public static IEnumerator Card(string text, float a0, float a1, int n, Action<float> each = null)
+        {
+            CardText = text;
+            for (int i = 0; i < n; ++i)
+            {
+                float f = n > 1 ? (float)i / (n - 1) : 1f;
+                CardAlpha = Mathf.Lerp(a0, a1, B2Showcase.Smooth(f));
+                each?.Invoke(f);
+                B2Showcase.B9PanelOff();
+                yield return null;
+            }
+            CardAlpha = a1;
+        }
 
         /// <summary>No frames saved while set (a cut: set-up the video shouldn't show).</summary>
         public static bool Paused;
@@ -485,18 +514,37 @@ namespace CustomProceduralParts.Showcase
             GUI.depth = -100;
             if (titleStyle == null)
             {
-                titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 40, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
-                lineStyle = new GUIStyle(GUI.skin.label) { fontSize = 26, wordWrap = true, normal = { textColor = new Color(0.92f, 0.92f, 0.92f) } };
+                titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 40, fontStyle = FontStyle.Bold, alignment = TextAnchor.UpperCenter, normal = { textColor = Color.white } };
+                lineStyle = new GUIStyle(GUI.skin.label) { fontSize = 26, wordWrap = true, alignment = TextAnchor.UpperCenter, normal = { textColor = new Color(0.92f, 0.92f, 0.92f) } };
             }
-            if (string.IsNullOrEmpty(title)) return;
-            float w = Screen.width, h = Screen.height;
-            var box = new Rect(0, h - 150, w, 150);
+            if (CardAlpha >= 0.999f) { DrawCard(); return; }
+            if (!string.IsNullOrEmpty(title)) DrawCaption();
+            if (CardAlpha > 0f) DrawCard();
+        }
+
+        private void DrawCard()
+        {
+            if (cardStyle == null)
+                cardStyle = new GUIStyle(GUI.skin.label) { fontSize = 84, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, normal = { textColor = Color.white } };
+            Color old = GUI.color;
+            GUI.color = new Color(0.07f, 0.08f, 0.09f, CardAlpha);
+            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
+            GUI.color = new Color(1f, 1f, 1f, CardAlpha);
+            GUI.Label(new Rect(0, 0, Screen.width, Screen.height), CardText ?? "", cardStyle);
+            GUI.color = old;
+        }
+
+        private void DrawCaption()
+        {
+            // across the top, centred
+            float w = Screen.width;
+            var box = new Rect(0, 0, w, string.IsNullOrEmpty(line) ? 76 : 120);
             Color old = GUI.color;
             GUI.color = new Color(0, 0, 0, 0.55f);
             GUI.DrawTexture(box, Texture2D.whiteTexture);
             GUI.color = old;
-            GUI.Label(new Rect(60, h - 140, w - 120, 56), title, titleStyle);
-            GUI.Label(new Rect(60, h - 84, w - 120, 70), line, lineStyle);
+            GUI.Label(new Rect(60, 10, w - 120, 56), title, titleStyle);
+            if (!string.IsNullOrEmpty(line)) GUI.Label(new Rect(60, 66, w - 120, 50), line, lineStyle);
         }
     }
 }
