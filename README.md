@@ -30,7 +30,7 @@ in-scene gizmo. Added to every ProceduralParts part (pick it from the Shape sele
   its vertices on the grid (snap and grid step optional; double-click an edge to add a vertex,
   right-click one to remove it), then Save, or Save As a new name. Drag the window's corner to
   stretch the grid, and turn Plot opacity down to see the scene through it (to trace a part's
-  cross-section, say). Mirror left-to-right and/or top-to-bottom: edit one side (or the top-left
+  cross-section, say). Rest the pointer on a control for a tooltip. Mirror left-to-right and/or top-to-bottom: edit one side (or the top-left
   quadrant) and the rest follows; turning a mirror on replaces the far side, and Revert undoes it.
   The mirrors stay ticked (in `PluginData/SpineOptions.cfg`) for every section you open that is
   already symmetric that way; one that isn't opens unmirrored until you tick it. Stretch pulls the
@@ -56,11 +56,14 @@ in-scene gizmo. Added to every ProceduralParts part (pick it from the Shape sele
   node before dragging it, and cross-section outlines (on the selected part, every node's section
   drawn on it, its hidden side faint, with a faint vertical line through each node's handle; the
   selected node's in orange). For this part (saved with the craft): points per section, 24 to 96, for smoother curves.
+- Surface attachment follows the skin: the collider is convex pieces that track the visible
+  surface (waists, hollows and concave sections included), so a part attaches where you point and
+  turned to that face. Edit the Spine any way and what's attached stays on the skin at the same
+  spot, without turning; a Spine surface-attached to something stays touching it.
 - Hollow shell mode with variable thickness and closable ends.
 - Volume, drag cubes, symmetry, and FAR/TestFlight interop.
 
-Known limitations: surface-attach coordinates ignore per-node vertical offset; open shell ends
-still have solid stack nodes and a closed FAR voxelization.
+Known limitations: open shell ends still have solid stack nodes and a closed FAR voxelization.
 
 ## Tests
 

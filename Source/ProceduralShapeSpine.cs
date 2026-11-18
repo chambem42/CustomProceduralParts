@@ -61,7 +61,7 @@ namespace CustomProceduralParts
         private new const string ModTag = "[ProceduralShapeSpine]";
         internal const int MinSides = 24;          // points per ring by default, and the fewest (icons use it too)
         internal const int MaxSectionVerts = 96;   // a custom section's vertex cap (a part with fewer points per section simplifies it)
-        private const int ColliderSides = 12;  // coarser collider
+        private const int ColliderSides = 24;  // collider points per ring, at most
 
         public override void InitializeAttachmentNodes() => InitializeAttachmentNodes(length, EndDiameter(0));
 
@@ -522,7 +522,9 @@ namespace CustomProceduralParts
             part.CoMOffset = CoMOffset;
             if (HighLogic.LoadedSceneIsEditor && shellMode) UpdateShellThicknessRange();
 
-            List<Ring> rings = BuildRings();
+            Loft built = BuildLoft();
+            List<Ring> rings = built.rings;
+            _built = built;   // the skin attachments sit on, till the next build
             float maxDia = 0f, minDia = float.MaxValue, minBoundDia = float.MaxValue;
             foreach (Ring r in rings)
             {
@@ -879,7 +881,8 @@ namespace CustomProceduralParts
         // Build the loft rings, subdividing each segment per its lower node's slopeAbove so the
         // silhouette curves (concave/convex/waisted), and morphing the cross-section profile from the
         // lower node's to the upper node's across the segment. Linear/same-profile segments stay coarse.
-        private List<Ring> BuildRings()
+        // `segStart`, if given, gets each segment's first ring (its lower node's) and, last, the last ring.
+        private List<Ring> BuildRings(List<int> segStart = null)
         {
             EnsureNodes();
             SortNodes();
@@ -889,6 +892,7 @@ namespace CustomProceduralParts
             var rings = new List<Ring> { first };
             for (int i = 1; i < nodes.Count; i++)
             {
+                segStart?.Add(rings.Count - 1);
                 SpineNode lo = nodes[i - 1], hi = nodes[i];
                 float aY = NodeY(lo), bY = NodeY(hi), aH = Erh(lo), aV = Erv(lo), bH = Erh(hi), bV = Erv(hi);
                 float aOff = Eoff(lo), bOff = Eoff(hi);
@@ -920,6 +924,7 @@ namespace CustomProceduralParts
                     });
                 }
             }
+            segStart?.Add(rings.Count - 1);
             return rings;
         }
 
@@ -1073,12 +1078,24 @@ namespace CustomProceduralParts
             ProceduralPart.tfInterface.InvokeMember("AddInteropValue", ProceduralPart.tfBindingFlags, null, null, new object[] { part, "length", length, "ProceduralParts" });
         }
 
+        // Length: the stack nodes (and what's on them) move with the ends as Procedural Parts moves them; surface
+        // attachments keep their spots on the skin (ReplaceAttachments), as do they for the scales. PP calls this
+        // on each symmetry counterpart itself.
         public override void TranslateAttachmentsAndNodes(BaseField f, object obj)
         {
-            if (f.name == nameof(length) && obj is float oldLen)
-                HandleLengthChange((float)f.GetValue(this), oldLen);
-            else if ((f.name == nameof(hScale) || f.name == nameof(vScale)) && obj is float oldScale && oldScale > 0f)
-                HandleDiameterChange((float)f.GetValue(this), oldScale);
+            bool len = f.name == nameof(length), scale = f.name == nameof(hScale) || f.name == nameof(vScale);
+            if (!(obj is float old) || (!len && !scale) || (scale && old <= 0f)) return;
+            object now = f.GetValue(this);
+            f.SetValue(old, this);   // the skin as it was (BuildRings reads the fields)
+            Loft was = BuildLoft();
+            f.SetValue(now, this);
+            List<AttachSnap> snaps = SnapshotAttachments(counterparts: false, L: was);
+            if (len)
+            {
+                HandleLengthChange((float)now, old);
+                snaps.RemoveAll(s => s.kind == SnapKind.Stack);
+            }
+            ReplaceAttachments(snaps);
         }
 
         // Phase-1 circular approximation: normalize by the widest radius. Phase 2 makes this
@@ -1097,18 +1114,24 @@ namespace CustomProceduralParts
         }
 
         // --- Attachment following ---------------------------------------------------------------------
-        // The per-node PAW edits and gizmo drags change the surface but don't run through
-        // TranslateAttachmentsAndNodes (that only fires for the whole-part length / scale sliders). So we
-        // snapshot the attachments against the pre-edit geometry (SampleSurface + SnapshotAttachments),
-        // apply the edit, then re-place them on the post-edit geometry (ReplaceAttachments) so stack parts
-        // and surface-attached children stay glued to the skin as nodes are resized / offset / moved.
+        // An edit changes the skin, and what's attached should stay on it. Every rebuild (RebuildAndPropagate, and
+        // RebuildLive during a gizmo drag) snapshots the attachments against the skin as last built (_built: what
+        // they sit on), rebuilds, then re-places them on the new one (ReplaceAttachments) -- whatever the edit was.
+        // A stack part follows its end's section centre. A surface-attached part keeps its
+        // spot on the skin -- the segment it's on (by its two nodes), how far along, and where round the section --
+        // and its height off it, and moves (without turning: a wing's incidence stays put) to where that spot is
+        // now. This part's own surface attachment works the other way round: its node moves to its spot on the new
+        // skin, and the part moves so the node stays on what it's attached to (at the end of a drag, from where
+        // it was at the start). Symmetry counterparts' attachments are re-placed with them. Procedural Parts'
+        // whole-part length / scale sliders rebuild by themselves, then call TranslateAttachmentsAndNodes, which
+        // does the same from the skin as it was.
 
         // Centre (offsetX/Z) + half-extents (rH/rV) of the body at a height y, sampled from the loft rings.
         private struct SurfSlice { public float y, cX, cZ, sX, sZ; }
 
-        private List<SurfSlice> SampleSurface()
+        private static List<SurfSlice> SampleSurface(Loft L)
         {
-            List<Ring> rings = BuildRings();   // sorted by y ascending
+            List<Ring> rings = L.rings;   // sorted by y ascending
             var s = new List<SurfSlice>(rings.Count);
             foreach (Ring r in rings)
                 s.Add(new SurfSlice { y = r.y, cX = r.offsetX, cZ = r.offsetZ,
@@ -1134,59 +1157,284 @@ namespace CustomProceduralParts
             SurfSlice last = s[n - 1]; last.y = y; return last;
         }
 
-        // One attachment captured before an edit: `local` is the attach point in this part's frame (used
-        // to sample the surface), `world` its absolute position (used as the move origin, so a child still
-        // moves correctly even if a stack push has since shifted our own transform).
-        private struct AttachSnap { public AttachNode node; public bool stack; public Vector3 local, world; }
+        // The loft's rings and where each segment's start (index of its lower node's ring; one past the last
+        // segment, the last ring).
+        private sealed class Loft
+        {
+            public List<Ring> rings;
+            public List<int> segStart;
+            public List<SpineNode> nodes;   // the nodes it was built from, and their positions then
+            public float[] pos;
+        }
 
-        private List<AttachSnap> SnapshotAttachments()
+        private Loft _built;
+
+        private Loft BuildLoft()
+        {
+            var seg = new List<int>();
+            List<Ring> rings = BuildRings(seg);
+            return new Loft { rings = rings, segStart = seg, nodes = new List<SpineNode>(nodes), pos = nodes.Select(n => n.position).ToArray() };
+        }
+
+        // A spot on the skin: segment (its lower and upper node, and their positions then), how far along it
+        // (0..1, by ring), round the section (outline index + fraction), and the attach point's height off the skin.
+        // Or on an end cap (cap -1 the bottom, +1 the top): where on it, as a share of the end ring's half-extents.
+        private struct SkinSpot
+        {
+            public SpineNode lo, hi;
+            public float loPos, hiPos, along, round, height;
+            public int cap;
+            public Vector2 capAt;
+        }
+
+        // A point in a ring's plane (outline coordinates) in the part's frame, as RingV places outline points.
+        private static Vector3 RingPoint(Ring ring, Vector2 p) =>
+            new Vector3(p.x + ring.offsetX, ring.y + p.y * ring.tanTiltV + p.x * ring.tanTiltH, p.y + ring.offsetZ);
+
+        private static bool InOutline(Vector2[] o, Vector2 p)
+        {
+            bool inside = false;
+            for (int i = 0, j = o.Length - 1; i < o.Length; j = i++)
+                if ((o[i].y > p.y) != (o[j].y > p.y) && p.x < (o[j].x - o[i].x) * (p.y - o[i].y) / (o[j].y - o[i].y) + o[i].x)
+                    inside = !inside;
+            return inside;
+        }
+
+        private SkinSpot SpotOf(Loft L, Vector3 p)
+        {
+            List<Ring> rings = L.rings;
+            int rc = rings.Count, n = rings[0].outline.Length;
+            float best = float.MaxValue, ringF = 0f, roundF = 0f;
+            Vector3 bestPt = p;
+            for (int r = 0; r < rc - 1; r++)
+                for (int j = 0; j < n; j++)
+                {
+                    Vector3 a = RingV(rings[r], j), b = RingV(rings[r], j + 1), c = RingV(rings[r + 1], j), d = RingV(rings[r + 1], j + 1);
+                    // (a, c, b): a + v(b - a) + w(c - a) = round j + v, ring r + w
+                    Vector3 q = ClosestOnTriangle(p, a, b, c, out float v, out float w);
+                    float dd = (q - p).sqrMagnitude;
+                    if (dd < best) { best = dd; ringF = r + w; roundF = j + v; bestPt = q; }
+                    // (b, c, d): b + v(c - b) + w(d - b) = round j + 1 - v, ring r + v + w
+                    q = ClosestOnTriangle(p, b, c, d, out v, out w);
+                    dd = (q - p).sqrMagnitude;
+                    if (dd < best) { best = dd; ringF = r + v + w; roundF = j + 1 - v; bestPt = q; }
+                }
+            // nearer an end cap? (solid ends only)
+            if (!shellMode)
+                foreach (int cap in new[] { -1, 1 })
+                {
+                    Ring R = rings[cap < 0 ? 0 : rc - 1];
+                    var p2 = new Vector2(p.x - R.offsetX, p.z - R.offsetZ);
+                    float h = (p.y - RingPoint(R, p2).y) * cap;
+                    if (h * h >= best || !InOutline(R.outline, p2)) continue;
+                    return new SkinSpot { cap = cap, height = h,
+                                          capAt = new Vector2(p2.x / Mathf.Max(1e-4f, R.rH), p2.y / Mathf.Max(1e-4f, R.rV)) };
+                }
+            int s = SegmentOfRing(L, ringF);
+            float span = Mathf.Max(1, L.segStart[s + 1] - L.segStart[s]);
+            Skin(L, ringF, roundF, out Vector3 at, out Vector3 nrm);
+            return new SkinSpot
+            {
+                lo = L.nodes[s], hi = L.nodes[s + 1], loPos = L.pos[s], hiPos = L.pos[s + 1],
+                along = Mathf.Clamp01((ringF - L.segStart[s]) / span), round = roundF,
+                height = Vector3.Dot(p - at, nrm),
+            };
+        }
+
+        private static int SegmentOfRing(Loft L, float ringF)
+        {
+            int segs = L.segStart.Count - 1;
+            for (int s = 0; s < segs; s++)
+                if (ringF <= L.segStart[s + 1] + 1e-4f) return s;
+            return Math.Max(0, segs - 1);
+        }
+
+        // Where a spot is on the current loft: its segment by its nodes when they're still neighbours, else by the
+        // spine position it was at.
+        private Vector3 PlaceOf(Loft L, SkinSpot sp, out Vector3 normal)
+        {
+            if (sp.cap != 0)
+            {
+                Ring R = L.rings[sp.cap < 0 ? 0 : L.rings.Count - 1];
+                normal = sp.cap * Vector3.up;
+                return RingPoint(R, new Vector2(sp.capAt.x * R.rH, sp.capAt.y * R.rV)) + sp.height * normal;
+            }
+            int s = nodes.IndexOf(sp.lo);
+            float along = sp.along;
+            if (s < 0 || s + 1 >= nodes.Count || nodes[s + 1] != sp.hi)
+            {
+                float pos = Mathf.Lerp(sp.loPos, sp.hiPos, sp.along);
+                s = 0;
+                while (s < nodes.Count - 2 && nodes[s + 1].position < pos) s++;
+                along = Mathf.Clamp01(Mathf.InverseLerp(nodes[s].position, nodes[s + 1].position, pos));
+            }
+            float ringF = L.segStart[s] + along * (L.segStart[s + 1] - L.segStart[s]);
+            Skin(L, ringF, sp.round, out Vector3 at, out normal);
+            return at + sp.height * normal;
+        }
+
+        // The skin at (ring, round) fractional indices: the point (bilinear in the quad) and the outward normal.
+        private static void Skin(Loft L, float ringF, float roundF, out Vector3 at, out Vector3 normal)
+        {
+            List<Ring> rings = L.rings;
+            int rc = rings.Count, n = rings[0].outline.Length;
+            int r = Mathf.Clamp(Mathf.FloorToInt(ringF), 0, rc - 2);
+            float w = Mathf.Clamp01(ringF - r);
+            int j = Mathf.FloorToInt(roundF);
+            float v = roundF - j;
+            Vector3 P(int ri, float jf)
+            {
+                int j0 = Mathf.FloorToInt(jf);
+                return Vector3.Lerp(RingV(rings[ri], j0), RingV(rings[ri], j0 + 1), jf - j0);
+            }
+            at = Vector3.Lerp(P(r, roundF), P(r + 1, roundF), w);
+            Vector3 dRing = P(r + 1, roundF) - P(r, roundF);
+            Vector3 dRound = Vector3.Lerp(RingV(rings[r], j + 1) - RingV(rings[r], j), RingV(rings[r + 1], j + 1) - RingV(rings[r + 1], j), w);
+            normal = Vector3.Cross(dRound, dRing);
+            // outward: the outline's turning sense says which side of its edge is out
+            Vector2[] o = rings[w < 0.5f ? r : r + 1].outline;
+            float area = 0f;
+            for (int k = 0; k < n; k++) area += o[k].x * o[(k + 1) % n].y - o[(k + 1) % n].x * o[k].y;
+            Vector2 e = o[((j + 1) % n + n) % n] - o[((j % n) + n) % n];
+            var outHint = new Vector3(e.y, 0f, -e.x) * Mathf.Sign(area == 0f ? 1f : area);
+            if (normal.sqrMagnitude < 1e-12f) normal = outHint;
+            if (Vector3.Dot(normal, outHint) < 0f) normal = -normal;
+            normal = normal.sqrMagnitude > 1e-12f ? normal.normalized : Vector3.up;
+        }
+
+        // Closest point on triangle abc to p (Ericson, Real-Time Collision Detection 5.1.5), with its weights:
+        // the point is a + v(b - a) + w(c - a).
+        private static Vector3 ClosestOnTriangle(Vector3 p, Vector3 a, Vector3 b, Vector3 c, out float v, out float w)
+        {
+            Vector3 ab = b - a, ac = c - a, ap = p - a;
+            float d1 = Vector3.Dot(ab, ap), d2 = Vector3.Dot(ac, ap);
+            if (d1 <= 0f && d2 <= 0f) { v = w = 0f; return a; }
+            Vector3 bp = p - b;
+            float d3 = Vector3.Dot(ab, bp), d4 = Vector3.Dot(ac, bp);
+            if (d3 >= 0f && d4 <= d3) { v = 1f; w = 0f; return b; }
+            float vc = d1 * d4 - d3 * d2;
+            if (vc <= 0f && d1 >= 0f && d3 <= 0f) { v = d1 / (d1 - d3); w = 0f; return a + v * ab; }
+            Vector3 cp = p - c;
+            float d5 = Vector3.Dot(ab, cp), d6 = Vector3.Dot(ac, cp);
+            if (d6 >= 0f && d5 <= d6) { v = 0f; w = 1f; return c; }
+            float vb = d5 * d2 - d1 * d6;
+            if (vb <= 0f && d2 >= 0f && d6 <= 0f) { v = 0f; w = d2 / (d2 - d6); return a + w * ac; }
+            float va = d3 * d6 - d5 * d4;
+            if (va <= 0f && (d4 - d3) >= 0f && (d5 - d6) >= 0f)
+            {
+                float t = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+                v = 1f - t; w = t;
+                return b + t * (c - b);
+            }
+            float denom = 1f / (va + vb + vc);
+            v = vb * denom; w = vc * denom;
+            return a + ab * v + ac * w;
+        }
+
+        // One attachment captured before an edit, on the Spine `owner` (this part or a symmetry counterpart): a
+        // stack node (local: its position), a part surface-attached to it (local: its attach point in the owner's
+        // frame, spot: where that is on the skin), or the owner's own surface attachment (self).
+        private enum SnapKind { Stack, Child, Self }
+
+        private struct AttachSnap
+        {
+            public ProceduralShapeSpine owner;
+            public SnapKind kind;
+            public AttachNode node;
+            public Vector3 local;
+            public SkinSpot spot;
+            public SurfSlice centre;   // Stack: the section at the node, then
+        }
+
+        // The attachments against loft L (by default the skin as last built); `counterparts` adds the symmetry
+        // counterparts' (against theirs), `self` this part's own surface attachment.
+        private List<AttachSnap> SnapshotAttachments(bool counterparts = true, bool self = true, Loft L = null)
         {
             var snaps = new List<AttachSnap>();
-            foreach (AttachNode n in part.attachNodes)
-                if (n.nodeType == AttachNode.NodeType.Stack)
-                    snaps.Add(new AttachSnap { node = n, stack = true, local = n.position });
-            foreach (Part c in part.children)
-                if (c.FindAttachNodeByPart(part) is AttachNode cn && cn.nodeType == AttachNode.NodeType.Surface)
-                {
-                    Vector3 world = cn.owner.transform.TransformPoint(cn.position);
-                    snaps.Add(new AttachSnap { node = cn, stack = false,
-                                               local = part.transform.InverseTransformPoint(world), world = world });
-                }
+            if (!HighLogic.LoadedSceneIsEditor) return snaps;
+            SnapshotInto(snaps, L ?? _built, self);
+            if (counterparts)
+                foreach (Part p in part.symmetryCounterparts)
+                    if (FindAbstractShapeModule(p, this) is ProceduralShapeSpine pm) pm.SnapshotInto(snaps, pm._built, self);
             return snaps;
         }
 
-        // Move each snapshotted attachment onto the current (post-edit) surface. A stack part sits on the
-        // axis, so its node follows only the section-centre offset; a surface child also scales radially
-        // with the per-axis size change (its offset from the section centre grows/shrinks with the skin).
-        private void ReplaceAttachments(List<SurfSlice> oldS, List<AttachSnap> snaps)
+        private void SnapshotInto(List<AttachSnap> snaps, Loft L, bool self)
+        {
+            if (L == null || L.rings.Count < 2) return;
+            List<SurfSlice> surf = null;
+            foreach (AttachNode n in part.attachNodes)
+                if (n.nodeType == AttachNode.NodeType.Stack)
+                {
+                    surf = surf ?? SampleSurface(L);
+                    snaps.Add(new AttachSnap { owner = this, kind = SnapKind.Stack, node = n, local = n.position, centre = SurfaceAt(surf, n.position.y) });
+                }
+            foreach (Part c in part.children)
+                if (c.FindAttachNodeByPart(part) is AttachNode cn && cn.nodeType == AttachNode.NodeType.Surface)
+                {
+                    Vector3 local = part.transform.InverseTransformPoint(cn.owner.transform.TransformPoint(cn.position));
+                    snaps.Add(new AttachSnap { owner = this, kind = SnapKind.Child, node = cn, local = local, spot = SpotOf(L, local) });
+                }
+            if (self && SelfSnap(L) is AttachSnap me) snaps.Add(me);
+        }
+
+        private AttachSnap? SelfSnap(Loft L)
+        {
+            if (L == null || L.rings.Count < 2 || !(part.srfAttachNode is AttachNode srf) || srf.attachedPart == null || srf.attachedPart != part.parent)
+                return null;
+            return new AttachSnap { owner = this, kind = SnapKind.Self, node = srf, local = srf.position, spot = SpotOf(L, srf.position) };
+        }
+
+        // Re-place the snapshotted attachments on each owner's skin as now built.
+        private static void ReplaceAttachments(List<AttachSnap> snaps)
         {
             if (snaps == null || snaps.Count == 0) return;
-            List<SurfSlice> newS = SampleSurface();
-            foreach (AttachSnap s in snaps)
+            foreach (var group in snaps.GroupBy(s => s.owner))
             {
-                Vector3 p = s.local;
-                SurfSlice a = SurfaceAt(oldS, p.y), b = SurfaceAt(newS, p.y);
-                if (s.stack)
+                ProceduralShapeSpine m = group.Key;
+                if (m == null || m._built == null) continue;
+                Loft L = m._built;
+                List<SurfSlice> newS = null;
+                // children first: the owner's own move (Self) takes them with it
+                foreach (AttachSnap s in group.OrderBy(x => x.kind == SnapKind.Self ? 1 : 0))
                 {
-                    Vector3 d = new Vector3(b.cX - a.cX, 0f, b.cZ - a.cZ);
-                    if (d.sqrMagnitude < 1e-8f) continue;
-                    TranslateNode(s.node, d);
-                    if (s.node.attachedPart is Part ap) TranslatePart(ap, d);
-                }
-                else
-                {
-                    Vector3 np = new Vector3(b.cX + (p.x - a.cX) * b.sX / a.sX, p.y,
-                                             b.cZ + (p.z - a.cZ) * b.sZ / a.sZ);
-                    if ((np - p).sqrMagnitude < 1e-8f) continue;
-                    Vector3 wNew = part.transform.TransformPoint(np);
-                    s.node.owner.transform.Translate(wNew - s.world, Space.World);
+                    switch (s.kind)
+                    {
+                        case SnapKind.Stack:
+                        {
+                            newS = newS ?? SampleSurface(L);
+                            SurfSlice a = s.centre, b = SurfaceAt(newS, s.local.y);
+                            Vector3 d = new Vector3(b.cX - a.cX, 0f, b.cZ - a.cZ);
+                            if (d.sqrMagnitude < 1e-8f) break;
+                            m.TranslateNode(s.node, d);
+                            if (s.node.attachedPart is Part ap) m.TranslatePart(ap, d);
+                            break;
+                        }
+                        case SnapKind.Child:
+                        {
+                            if (s.node.owner == null) break;
+                            Vector3 to = m.part.transform.TransformPoint(m.PlaceOf(L, s.spot, out _));
+                            Vector3 now = s.node.owner.transform.TransformPoint(s.node.position);
+                            if ((to - now).sqrMagnitude > 1e-10f) s.node.owner.transform.Translate(to - now, Space.World);
+                            break;
+                        }
+                        case SnapKind.Self:
+                        {
+                            Vector3 nodeTo = m.PlaceOf(L, s.spot, out _);
+                            Vector3 touch = m.part.transform.TransformPoint(s.node.position);   // on what it's attached to
+                            m.MoveNode(s.node, nodeTo);
+                            Vector3 moved = touch - m.part.transform.TransformPoint(nodeTo);
+                            if (moved.sqrMagnitude > 1e-10f) m.part.transform.Translate(moved, Space.World);
+                            break;
+                        }
+                    }
                 }
             }
         }
 
-        // Drag baseline: geometry + attachment snapshot captured at gizmo mouse-down, consumed on release.
-        private List<SurfSlice> _dragSurf0;
-        private List<AttachSnap> _dragAttach0;
+        // A gizmo drag moves this part's own surface attachment once, at the end, from where it was at the start
+        // (moving the part under the cursor mid-drag would fight the drag).
+        private AttachSnap? _dragSelf;
 
         #endregion
 
@@ -1289,9 +1537,6 @@ namespace CustomProceduralParts
             if (nodes.Count == 0) return;
             SpineNode n = nodes[SelIndex];
             Debug.Log($"{ModTag} OnNodeFieldChanged {f.name}: {obj} -> {f.GetValue(this)} | sel={SelIndex}/{nodes.Count} before: {Dump(n)}");
-            // Snapshot attachments against the pre-edit surface (before the switch mutates the node).
-            List<SurfSlice> oldSurf = SampleSurface();
-            List<AttachSnap> attachSnaps = SnapshotAttachments();
             try
             {
                 switch (f.name)
@@ -1325,8 +1570,7 @@ namespace CustomProceduralParts
                 // A position edit can reorder; keep the selection on the same node.
                 SortNodes();
                 selectedNode = Mathf.Clamp(nodes.IndexOf(n), 0, nodes.Count - 1);
-                RebuildAndPropagate();
-                ReplaceAttachments(oldSurf, attachSnaps);   // keep attached parts on the new surface
+                RebuildAndPropagate();   // attached parts stay on the new surface
                 Debug.Log($"{ModTag}  applied -> sel={SelIndex} after: {Dump(n)}");
             }
             catch (Exception e)
@@ -1343,16 +1587,25 @@ namespace CustomProceduralParts
 
         private void RebuildAndPropagate()
         {
+            List<AttachSnap> snaps = SnapshotAttachments(self: _dragSelf == null);
+            if (_dragSelf is AttachSnap me) snaps.Add(me);
+            _dragSelf = null;
             UpdateShape();          // sets Volume -> fires OnPartVolumeChanged + onEditorShipModified
             UpdateInterops();       // FAR / TestFlight
             SyncToSymmetry();
+            ReplaceAttachments(snaps);   // what's attached stays on the new skin
         }
 
         // Lightweight rebuild for continuous gizmo drags: refresh this part's mesh only, deferring the
         // expensive FAR/TestFlight interop and the per-counterpart symmetry rebuild to drag end (a full
         // RebuildAndPropagate fires once on mouse-up), so a drag doesn't re-voxelise and re-mesh the whole
         // symmetry group every frame.
-        private void RebuildLive() => UpdateShape();
+        private void RebuildLive()
+        {
+            List<AttachSnap> snaps = SnapshotAttachments(counterparts: false, self: false);
+            UpdateShape();
+            ReplaceAttachments(snaps);   // what's attached rides along
+        }
 
         // The node list isn't a scalar KSPField, so symmetry isn't auto-mirrored. Copy our state to
         // each counterpart's spine module and rebuild it.
@@ -1594,8 +1847,6 @@ namespace CustomProceduralParts
                 {
                     _dragIndex = -1;
                     RebuildAndPropagate();   // one full interop + symmetry sync on release
-                    ReplaceAttachments(_dragSurf0, _dragAttach0);   // settle attached parts onto the new surface
-                    _dragSurf0 = null; _dragAttach0 = null;
                     if (_dragAxis == 1) nodeOffsetH = nodes[SelIndex].offsetH;
                     else nodeOffsetV = nodes[SelIndex].offsetV;
                     _dragAxis = 0;
@@ -1615,8 +1866,6 @@ namespace CustomProceduralParts
                 {
                     _tipDragIndex = -1;
                     RebuildAndPropagate();   // one full interop + symmetry sync on release
-                    ReplaceAttachments(_dragSurf0, _dragAttach0);   // settle attached parts onto the new surface
-                    _dragSurf0 = null; _dragAttach0 = null;
                     SpineNode sn = nodes[SelIndex];
                     nodeWidth = sn.sizeH;
                     nodePos = sn.position;
@@ -1643,7 +1892,7 @@ namespace CustomProceduralParts
                         SelectNode(hover);
                         _tipDragIndex = hover;
                         _tipSide = (hoverKind == HoverKind.TipLeft) ? -1 : 1;
-                        _dragSurf0 = SampleSurface(); _dragAttach0 = SnapshotAttachments();
+                        _dragSelf = SelfSnap(_built);
                         // Capture the grab offset so the drag moves by the cursor delta, not snapping the
                         // value to the (possibly off-tip) grab point.
                         if (RawTip(hover, cam.ScreenPointToRay(Input.mousePosition), out float rw, out float rp))
@@ -1666,7 +1915,7 @@ namespace CustomProceduralParts
                             _dragIndex = hover;
                             _dragAxis = 0;
                             _grabDeltaV = nodes[hover].offsetV - RawVertical(hover, cam.ScreenPointToRay(Input.mousePosition));
-                            _dragSurf0 = SampleSurface(); _dragAttach0 = SnapshotAttachments();
+                            _dragSelf = SelfSnap(_built);
                         }
                     }
                     else if (Input.GetMouseButtonDown(1))
@@ -1678,7 +1927,7 @@ namespace CustomProceduralParts
                             _dragIndex = hover;
                             _dragAxis = 1;
                             _grabDeltaH = nodes[hover].offsetH - RawHorizontal(hover, cam.ScreenPointToRay(Input.mousePosition));
-                            _dragSurf0 = SampleSurface(); _dragAttach0 = SnapshotAttachments();
+                            _dragSelf = SelfSnap(_built);
                         }
                     }
                     else if (!Mathf.Approximately(Input.mouseScrollDelta.y, 0f)) ResizeNode(hover, Input.mouseScrollDelta.y);
@@ -1766,12 +2015,9 @@ namespace CustomProceduralParts
         private void ResizeNode(int i, float scroll)
         {
             SpineNode n = nodes[i];
-            List<SurfSlice> oldSurf = SampleSurface();
-            List<AttachSnap> snaps = SnapshotAttachments();
             float step = PPart.diameterSmallStep * Mathf.Sign(scroll);
             n.sizeV = Mathf.Clamp(n.sizeV + step, MinSizeFor(i), MaxSize);
             RebuildAndPropagate();
-            ReplaceAttachments(oldSurf, snaps);
             if (i == SelIndex) { LoadProxyFromNode(); MonoUtilities.RefreshPartContextWindow(part); }
         }
 
@@ -2370,18 +2616,20 @@ namespace CustomProceduralParts
 
         // The outline points every ring gives the collider: the same ones on each ring (the rings' outlines are
         // aligned point for point, so ring point k is the same feature all along and the collider's faces follow
-        // the loft's). The section's own shape, concave or not: physics takes the convex hull of the whole collider
-        // anyway (it's convex), but whatever reads its triangles (FAR's aero and water forces) sees the hollow of a
-        // V, a step or a notch rather than a hull bridged across it. Its corners (ComputeHardColumns) are kept; the
-        // rest of ColliderSides are spread evenly by arc length (the rings' mean) over the stretches between them,
-        // each stretch its share by length -- a round section (no corners: point 0 anchors it) thins to evenly
-        // spaced points, mirror-symmetric about point 0 when the section is.
+        // the loft's). The section's own shape, concave or not: the collider's pieces are cut into convex parts
+        // along it, and whatever reads its triangles (FAR's aero and water forces) sees the hollow of a V, a step or
+        // a notch rather than a hull bridged across it. Every point when the outline has no more than ColliderSides;
+        // otherwise its corners (ComputeHardColumns) are kept and the rest of ColliderSides spread evenly by arc
+        // length (the rings' mean) over the stretches between them, each stretch its share by length -- a round
+        // section (no corners: point 0 anchors it) thins to evenly spaced points, mirror-symmetric about point 0
+        // when the section is.
         // Null when the rings don't share a point count (then each ring gives its own hull).
         private static List<int> SharedColliderPoints(List<Ring> rings)
         {
             if (rings.Count == 0 || rings[0].outline == null) return null;
             int n = rings[0].outline.Length;
-            if (n <= ColliderSides || rings.Any(r => r.outline == null || r.outline.Length != n)) return null;
+            if (rings.Any(r => r.outline == null || r.outline.Length != n)) return null;
+            if (n <= ColliderSides) return Enumerable.Range(0, n).ToList();   // every point
 
             // arc length position of each point, 0..1 round the outline ([n] = 1), the rings' mean
             var s = new float[n + 1];
@@ -2547,55 +2795,327 @@ namespace CustomProceduralParts
             return hull;
         }
 
+        // The collider, as convex pieces: physics takes each MeshCollider's convex hull, and KSP surface-attaches to
+        // the collider (a part goes where a ray hits it, turned to the face's normal), so one hull of the whole part
+        // floats over every waist, hollow and narrowing end. A piece is a run of rings whose collider points stay
+        // near straight lines from the run's first ring to its last (a linear segment is one run, a curved one a
+        // few), cut along the section into convex parts where the section is concave. The pieces' triangles are
+        // the loft's sides and end caps between them, each once, so whatever reads them (FAR's aero and water
+        // forces) sees one skin, as before.
         private void GenerateColliderMesh(List<Ring> rings)
         {
             int rc = rings.Count;
-            int per = ColliderSides;
-            int sideTris = (rc - 1) * ColliderSides * 2;
-            int capTris = shellMode ? 0 : (ColliderSides - 2) * 2;   // open ends in shell mode
-            var mesh = new UncheckedMesh(rc * per, sideTris + capTris);
-
+            if (rc < 2) return;
             List<int> shared = SharedColliderPoints(rings);
+            int per = shared?.Count ?? ColliderSides;
+            var pts = new Vector3[rc][];
+            var flat = new Vector2[rc][];
             for (int r = 0; r < rc; r++)
             {
                 Ring ring = rings[r];
-                List<int> pts = shared ?? ColliderPoints(ring.outline);
-                for (int j = 0; j < ColliderSides; j++)
+                List<int> idx = shared ?? ColliderPoints(ring.outline);
+                pts[r] = new Vector3[per];
+                flat[r] = new Vector2[per];
+                for (int j = 0; j < per; j++)
+                {
                     // a short list repeats points in order, so the ring still goes round once (the padding makes
-                    // zero-area triangles); wrapping round it again would fold the mesh over itself, which a
-                    // convex collider never shows but anything reading the triangles does
-                    mesh.vertices[r * per + j] = RingV(ring, pts[j * pts.Count / ColliderSides]);
-            }
-
-            int t = 0;
-            for (int r = 0; r < rc - 1; r++)
-            {
-                for (int j = 0; j < ColliderSides; j++)
-                {
-                    int a = r * per + j;
-                    int b = r * per + (j + 1) % ColliderSides;
-                    int c = (r + 1) * per + j;
-                    int d = (r + 1) * per + (j + 1) % ColliderSides;
-                    mesh.triangles[t++] = a; mesh.triangles[t++] = c; mesh.triangles[t++] = b;
-                    mesh.triangles[t++] = b; mesh.triangles[t++] = c; mesh.triangles[t++] = d;
-                }
-            }
-            if (!shellMode)
-            {
-                int botOff = 0, topOff = (rc - 1) * per;
-                for (int i = 0; i < ColliderSides - 2; i++)
-                {
-                    mesh.triangles[t++] = botOff; mesh.triangles[t++] = botOff + i + 1; mesh.triangles[t++] = botOff + i + 2;
-                }
-                for (int i = 0; i < ColliderSides - 2; i++)
-                {
-                    mesh.triangles[t++] = topOff; mesh.triangles[t++] = topOff + i + 2; mesh.triangles[t++] = topOff + i + 1;
+                    // zero-area triangles); wrapping round it again would fold the mesh over itself
+                    int k = shared != null ? idx[j] : idx[j * idx.Count / per];
+                    pts[r][j] = RingV(ring, k);
+                    flat[r][j] = ring.outline[k];
                 }
             }
 
-            var colliderMesh = new Mesh();
-            mesh.WriteTo(colliderMesh);
-            PPart.UpdateOrReplaceSingleCollider(colliderMesh);
+            var meshes = new List<Mesh>();
+            var todo = new Stack<(int a, int b)>(ColliderRuns(pts).AsEnumerable().Reverse());
+            while (todo.Count > 0)
+            {
+                (int a, int b) = todo.Pop();
+                // a ring's own hull points (no shared list) are convex already; a section's convex parts must be
+                // convex on every ring of the run (a morph changes the shape along it), else the run is halved
+                List<List<int>> parts;
+                if (shared == null) parts = new List<List<int>> { Enumerable.Range(0, per).ToList() };
+                else
+                {
+                    parts = ConvexParts(flat[(a + b) / 2]);
+                    if (parts.Count > 1 && b - a > 1 && !parts.All(q => ConvexOnRings(flat, a, b, q)))
+                    {
+                        int mid = (a + b) / 2;
+                        todo.Push((mid, b));
+                        todo.Push((a, mid));
+                        continue;
+                    }
+                }
+                foreach (List<int> poly in parts)
+                    if (ColliderPiece(pts, a, b, poly, per, a == 0 && !shellMode, b == rc - 1 && !shellMode) is Mesh m)
+                        meshes.Add(m);
+            }
+            SetColliders(meshes);
+        }
+
+        // Runs of rings [a, b] for the pieces: a run grows while every collider point of the rings inside it stays
+        // within a little of the straight line between the run's end rings' points.
+        private static List<(int a, int b)> ColliderRuns(Vector3[][] pts)
+        {
+            var runs = new List<(int, int)>();
+            int rc = pts.Length, a = 0;
+            while (a < rc - 1)
+            {
+                int b = a + 1;
+                while (b + 1 < rc && Straight(pts, a, b + 1)) b++;
+                runs.Add((a, b));
+                a = b;
+            }
+            return runs;
+        }
+
+        private static bool Straight(Vector3[][] pts, int a, int b)
+        {
+            for (int j = 0; j < pts[a].Length; j++)
+            {
+                Vector3 p = pts[a][j], q = pts[b][j], d = q - p;
+                float len2 = d.sqrMagnitude;
+                float tol = Mathf.Max(0.005f, 0.004f * Mathf.Sqrt(len2));
+                for (int m = a + 1; m < b; m++)
+                {
+                    Vector3 v = pts[m][j] - p;
+                    float t = len2 > 1e-12f ? Mathf.Clamp01(Vector3.Dot(v, d) / len2) : 0f;
+                    if ((v - t * d).sqrMagnitude > tol * tol) return false;
+                }
+            }
+            return true;
+        }
+
+        // One piece: the outline points `poly` (convex, in outline order) on rings a..b; its triangles the loft's
+        // side faces along the outline edges it owns (consecutive in the outline and in `poly`) and, at an end of the
+        // part, its share of the end cap. A flat piece gets a point lifted off its plane, so physics can make a hull
+        // of it; one with no extent at all is none.
+        private static Mesh ColliderPiece(Vector3[][] pts, int a, int b, List<int> poly, int per, bool capLo, bool capHi)
+        {
+            int np = poly.Count, rings = b - a + 1;
+            if (np < 2) return null;
+            var verts = new List<Vector3>(np * rings + 1);
+            for (int r = a; r <= b; r++)
+                foreach (int j in poly) verts.Add(pts[r][j]);
+            var tris = new List<int>();
+            for (int k = 0; k < np; k++)
+            {
+                int j = poly[k], j1 = poly[(k + 1) % np];
+                if (j1 != (j + 1) % per && !(np == per)) continue;   // a cut across the section, not an outline edge
+                for (int r = 0; r < rings - 1; r++)
+                {
+                    int va = r * np + k, vb = r * np + (k + 1) % np, vc = (r + 1) * np + k, vd = (r + 1) * np + (k + 1) % np;
+                    tris.Add(va); tris.Add(vc); tris.Add(vb);
+                    tris.Add(vb); tris.Add(vc); tris.Add(vd);
+                }
+            }
+            if (capLo)
+                for (int k = 1; k < np - 1; k++) { tris.Add(0); tris.Add(k); tris.Add(k + 1); }
+            if (capHi)
+            {
+                int top = (rings - 1) * np;
+                for (int k = 1; k < np - 1; k++) { tris.Add(top); tris.Add(top + k + 1); tris.Add(top + k); }
+            }
+
+            // flat? (all the points within a millimetre of one plane)
+            Vector3 v0 = verts[0], v1 = v0;
+            foreach (Vector3 v in verts) if ((v - v0).sqrMagnitude > (v1 - v0).sqrMagnitude) v1 = v;
+            Vector3 axis = v1 - v0;
+            if (axis.sqrMagnitude < 1e-8f) return null;
+            Vector3 v2 = v0;
+            float far = 0f;
+            foreach (Vector3 v in verts)
+            {
+                float d = Vector3.Cross(axis, v - v0).sqrMagnitude;
+                if (d > far) { far = d; v2 = v; }
+            }
+            Vector3 nrm = Vector3.Cross(axis, v2 - v0);
+            if (nrm.sqrMagnitude < 1e-12f) return null;
+            nrm.Normalize();
+            float thick = 0f;
+            foreach (Vector3 v in verts) thick = Mathf.Max(thick, Mathf.Abs(Vector3.Dot(v - v0, nrm)));
+            if (thick < 1e-3f)
+            {
+                Vector3 c = Vector3.zero;
+                foreach (Vector3 v in verts) c += v;
+                verts.Add(c / verts.Count + 2e-3f * nrm);
+            }
+
+            var mesh = new Mesh { name = "SpineCollider" };
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(tris, 0);
+            return mesh;
+        }
+
+        // A section outline (collider points, in order) cut into convex parts: ear-clipped into triangles, then
+        // neighbouring parts merged while the merge stays convex (Hertel-Mehlhorn). Points repeated in a row count
+        // once; a convex or degenerate outline is one part.
+        private static List<List<int>> ConvexParts(Vector2[] o)
+        {
+            int n = o.Length;
+            var all = Enumerable.Range(0, n).ToList();
+            var u = new List<int>(n);
+            for (int j = 0; j < n; j++)
+                if (u.Count == 0 || (o[j] - o[u[u.Count - 1]]).sqrMagnitude > 1e-10f) u.Add(j);
+            while (u.Count > 1 && (o[u[0]] - o[u[u.Count - 1]]).sqrMagnitude <= 1e-10f) u.RemoveAt(u.Count - 1);
+            if (u.Count < 4) return new List<List<int>> { all };
+            var repeat = Enumerable.Repeat(true, n).ToArray();
+            foreach (int j in u) repeat[j] = false;
+            float area = 0f;
+            for (int k = 0; k < u.Count; k++)
+            {
+                Vector2 p = o[u[k]], q = o[u[(k + 1) % u.Count]];
+                area += p.x * q.y - q.x * p.y;
+            }
+            if (Mathf.Abs(area) < 1e-8f) return new List<List<int>> { all };
+            float sgn = Mathf.Sign(area);
+            float Cross(int i, int j, int k) => sgn * ((o[j].x - o[i].x) * (o[k].y - o[i].y) - (o[j].y - o[i].y) * (o[k].x - o[i].x));
+            bool Convex(List<int> poly)
+            {
+                for (int k = 0; k < poly.Count; k++)
+                    if (Cross(poly[k], poly[(k + 1) % poly.Count], poly[(k + 2) % poly.Count]) < -1e-7f) return false;
+                return true;
+            }
+            if (Convex(u)) return new List<List<int>> { all };
+
+            // ear clipping
+            var rest = new List<int>(u);
+            var parts = new List<List<int>>();
+            int guard = 0;
+            while (rest.Count > 3 && guard++ < 10 * n)
+            {
+                bool clipped = false;
+                for (int k = 0; k < rest.Count; k++)
+                {
+                    int i = rest[(k + rest.Count - 1) % rest.Count], j = rest[k], l = rest[(k + 1) % rest.Count];
+                    if (Cross(i, j, l) <= 1e-9f) continue;
+                    bool inside = false;
+                    foreach (int m in rest)
+                    {
+                        if (m == i || m == j || m == l) continue;
+                        if (Cross(i, j, m) > 1e-9f && Cross(j, l, m) > 1e-9f && Cross(l, i, m) > 1e-9f) { inside = true; break; }
+                    }
+                    if (inside) continue;
+                    parts.Add(new List<int> { i, j, l });
+                    rest.RemoveAt(k);
+                    clipped = true;
+                    break;
+                }
+                if (!clipped) return new List<List<int>> { all };   // not a simple polygon: one part
+            }
+            parts.Add(rest);
+
+            // merge across shared edges while convex
+            bool merged = true;
+            while (merged)
+            {
+                merged = false;
+                for (int x = 0; x < parts.Count && !merged; x++)
+                    for (int y = x + 1; y < parts.Count && !merged; y++)
+                    {
+                        List<int> m = Merge(parts[x], parts[y]);
+                        if (m == null || !Convex(m)) continue;
+                        parts[x] = m;
+                        parts.RemoveAt(y);
+                        merged = true;
+                    }
+            }
+            // each part in outline order (as u runs), with the repeats of its points
+            var order = new int[n];
+            for (int k = 0; k < u.Count; k++) order[u[k]] = k;
+            return parts.Select(p => WithRepeats(p.OrderBy(j => order[j]).ToList(), repeat)).ToList();
+        }
+
+        // Whether outline points `poly` make a convex polygon on every ring a..b (each ring's own turning sense).
+        private static bool ConvexOnRings(Vector2[][] flat, int a, int b, List<int> poly)
+        {
+            for (int r = a; r <= b; r++)
+            {
+                Vector2[] o = flat[r];
+                float area = 0f;
+                for (int k = 0; k < o.Length; k++) area += o[k].x * o[(k + 1) % o.Length].y - o[(k + 1) % o.Length].x * o[k].y;
+                if (Mathf.Abs(area) < 1e-8f) continue;   // a closed end: no shape to bend
+                float sgn = Mathf.Sign(area);
+                float span = 0f;
+                foreach (int j in poly) span = Mathf.Max(span, o[j].magnitude);
+                float eps = 1e-4f * span * span;
+                // the part's distinct points, in order
+                var q = new List<Vector2>(poly.Count);
+                foreach (int j in poly)
+                    if (q.Count == 0 || (o[j] - q[q.Count - 1]).sqrMagnitude > 1e-10f) q.Add(o[j]);
+                if (q.Count > 1 && (q[0] - q[q.Count - 1]).sqrMagnitude <= 1e-10f) q.RemoveAt(q.Count - 1);
+                for (int k = 0; k < q.Count; k++)
+                {
+                    Vector2 p0 = q[k], p1 = q[(k + 1) % q.Count], p2 = q[(k + 2) % q.Count];
+                    if (sgn * ((p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x)) < -eps) return false;
+                }
+            }
+            return true;
+        }
+
+        // Two polygons sharing an edge (one's i->j, the other's j->i) joined across it; null if they share none.
+        private static List<int> Merge(List<int> p, List<int> q)
+        {
+            for (int a = 0; a < p.Count; a++)
+            {
+                int i = p[a], j = p[(a + 1) % p.Count];
+                int b = q.IndexOf(j);
+                if (b < 0 || q[(b + 1) % q.Count] != i) continue;
+                var m = new List<int>(p.Count + q.Count - 2);
+                for (int k = 0; k < p.Count; k++) m.Add(p[(a + 1 + k) % p.Count]);   // j ... i
+                for (int k = 2; k < q.Count; k++) m.Add(q[(b + k) % q.Count]);         // q's others, i to j
+                return m;
+            }
+            return null;
+        }
+
+        // A part's points with the outline's repeats of each (the ones skipped as duplicates) put back after it, so
+        // its outline edges are the outline's own, zero-length ones included.
+        private static List<int> WithRepeats(List<int> part, bool[] repeat)
+        {
+            int n = repeat.Length;
+            var r = new List<int>(part.Count);
+            foreach (int j in part)
+            {
+                r.Add(j);
+                for (int k = (j + 1) % n; k != j && repeat[k]; k = (k + 1) % n) r.Add(k);
+            }
+            return r;
+        }
+
+        // The pieces onto the part's collider holder: its MeshColliders reused while their count holds (only the
+        // meshes change), remade when it changes.
+        private List<MeshCollider> _pieces;
+
+        private void SetColliders(List<Mesh> meshes)
+        {
+            Transform holder = PPart.ColliderHolder.transform;
+            bool reuse = _pieces != null && _pieces.Count == meshes.Count && _pieces.All(c => c != null && c.transform.parent == holder)
+                         && holder.childCount == meshes.Count;
+            if (!reuse)
+            {
+                foreach (Transform child in holder.Cast<Transform>().ToList())
+                {
+                    child.SetParent(null, false);
+                    Destroy(child.gameObject);
+                }
+                _pieces = new List<MeshCollider>(meshes.Count);
+                for (int i = 0; i < meshes.Count; i++)
+                {
+                    var go = new GameObject("collisionMesh");
+                    go.transform.SetParent(holder, false);
+                    go.layer = holder.gameObject.layer;
+                    var mc = go.AddComponent<MeshCollider>();
+                    mc.convex = true;
+                    _pieces.Add(mc);
+                }
+            }
+            for (int i = 0; i < meshes.Count; i++)
+            {
+                Mesh old = _pieces[i].sharedMesh;
+                _pieces[i].sharedMesh = meshes[i];
+                if (old != null && old != meshes[i] && old.name == "SpineCollider") Destroy(old);
+            }
         }
 
         private void UpdateNodeSize(string nodeName, float diameter)

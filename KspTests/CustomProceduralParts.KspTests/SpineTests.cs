@@ -105,8 +105,8 @@ namespace CustomProceduralParts.KspTests
         }
 
         /// <summary>
-        /// The collider is a convex hull of a few points per ring; a custom section's tips must be among them, wherever
-        /// they fall in the 24-point outline, so the collider spans the visible mesh.
+        /// The collider is convex pieces of a few points per ring; a custom section's tips must be among them, wherever
+        /// they fall in the outline, so the collider spans the visible mesh.
         /// </summary>
         [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineTest")]
         public static IEnumerator Editor_ColliderKeepsSectionTips(TestContext ctx)
@@ -119,8 +119,9 @@ namespace CustomProceduralParts.KspTests
                 {
                     yield return Use(s, name, verts);
                     Bounds vis = s.PPart.SidesMesh.bounds;
-                    MeshCollider mc = s.part.GetComponentsInChildren<MeshCollider>(true).First(c => c.gameObject.name == "collisionMesh");
-                    Bounds col = mc.sharedMesh.bounds;
+                    MeshCollider[] pieces = s.part.GetComponentsInChildren<MeshCollider>(true).Where(c => c.gameObject.name == "collisionMesh").ToArray();
+                    Bounds col = pieces[0].sharedMesh.bounds;
+                    foreach (MeshCollider mc in pieces) col.Encapsulate(mc.sharedMesh.bounds);   // one holder: one frame
                     ctx.Record(name + ".visible", vis.ToString("F3"));
                     ctx.Record(name + ".collider", col.ToString("F3"));
                     float tol = 0.002f * vis.size.magnitude;
@@ -968,6 +969,190 @@ namespace CustomProceduralParts.KspTests
                 snap.Restore();
                 Cleanup("ZzHexA", "ZzHexB");
             }
+        }
+
+        // Rays from all round the part at its axis, against its colliders and against the visible skin (an exact,
+        // non-convex collider of the side mesh): how far apart the hits are, and the angle between their normals.
+        private struct SkinMiss { public float maxDist, p95Dist, maxAngle, p95Angle, meanAngle; public int rays; }
+
+        private static SkinMiss ColliderVsSkin(ProceduralShapeSpine s)
+        {
+            Part part = s.part;
+            MeshFilter sides = part.GetComponentsInChildren<MeshFilter>(true).First(mf => mf.sharedMesh == s.PPart.SidesMesh);
+            var go = new GameObject("ZzSkinProbe");
+            go.transform.SetPositionAndRotation(sides.transform.position, sides.transform.rotation);
+            go.transform.localScale = sides.transform.lossyScale;
+            var skin = go.AddComponent<MeshCollider>();
+            skin.sharedMesh = s.PPart.SidesMesh;
+            Collider[] cols = part.GetComponentsInChildren<Collider>(false).Where(c => c.enabled && c != skin).ToArray();
+            var dists = new List<float>();
+            var angles = new List<float>();
+            var worst = new List<(float angle, string what)>();
+            try
+            {
+                float R = 3f * s.MaxDiameter + 1f;
+                for (float fy = 0.035f; fy < 0.98f; fy += 0.02f)   // off the node rings (0.4, 0.75): a ray on a crease hits either face
+                    for (int a = 0; a < 360; a += 10)
+                    {
+                        float y = (fy - 0.5f) * s.length, th = a * Mathf.Deg2Rad;
+                        Vector3 o = part.transform.TransformPoint(new Vector3(R * Mathf.Cos(th), y, R * Mathf.Sin(th)));
+                        Vector3 to = part.transform.TransformPoint(new Vector3(0f, y, 0f));
+                        var ray = new Ray(o, (to - o).normalized);
+                        if (!skin.Raycast(ray, out RaycastHit hs, 2f * R)) continue;
+                        float best = float.MaxValue;
+                        RaycastHit hc = default;
+                        foreach (Collider c in cols)
+                            if (c.Raycast(ray, out RaycastHit h, 2f * R) && h.distance < best) { best = h.distance; hc = h; }
+                        if (best == float.MaxValue) { dists.Add(float.PositiveInfinity); angles.Add(180f); continue; }
+                        dists.Add(Mathf.Abs(hs.distance - hc.distance));
+                        angles.Add(Vector3.Angle(hs.normal, hc.normal));
+                        worst.Add((angles[angles.Count - 1], $"y {fy:F2} a {a} d {dists[dists.Count - 1]:F3} skin {part.transform.InverseTransformDirection(hs.normal).ToString("F2")} col {part.transform.InverseTransformDirection(hc.normal).ToString("F2")} {hc.collider.name}"));
+                    }
+            }
+            finally { Object.DestroyImmediate(go); }
+            LastWorst = string.Join(" | ", worst.OrderByDescending(w => w.angle).Take(12).Select(w => $"{w.angle:F0}: {w.what}"));
+            dists.Sort();
+            angles.Sort();
+            float P95(List<float> l) => l.Count == 0 ? 0f : l[(int)(0.95f * (l.Count - 1))];
+            return new SkinMiss { rays = dists.Count, maxDist = dists.LastOrDefault(), p95Dist = P95(dists),
+                                  maxAngle = angles.LastOrDefault(), p95Angle = P95(angles), meanAngle = angles.Count == 0 ? 0f : angles.Average() };
+        }
+
+        private static string LastWorst;
+
+        private static string Show(SkinMiss m) =>
+            $"rays {m.rays}: dist max {m.maxDist:F3} p95 {m.p95Dist:F3}; normal angle max {m.maxAngle:F1} p95 {m.p95Angle:F1} mean {m.meanAngle:F1}";
+
+        /// <summary>
+        /// The collider follows the visible skin closely enough to surface-attach to: a ray hits it about where it
+        /// hits the skin, with about the skin's normal (KSP orients a surface-attached part by that normal) -- on
+        /// curved runs, a waist, and a concave section.
+        /// </summary>
+        [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineTest")]
+        public static IEnumerator Editor_ColliderFollowsSkin(TestContext ctx)
+        {
+            ProceduralShapeSpine s = Spine();
+            var snap = new Snapshot(s);
+            try
+            {
+                yield return Wait.Frames(2);
+                SkinMiss craft = ColliderVsSkin(s);
+                ctx.Record("craft", Show(craft));
+                ctx.Record("craft worst", LastWorst);
+                ctx.Record("craft colliders", s.part.GetComponentsInChildren<Collider>(false).Length);
+                s.nodes[0].slopeAbove = SpineSlope.Waisted;
+                s.nodes[2].slopeAbove = SpineSlope.Concave;
+                s.UpdateShape(true);
+                yield return Wait.Frames(2);
+                SkinMiss waist = ColliderVsSkin(s);
+                ctx.Record("waist+concave", Show(waist));
+                yield return Use(s, "ZzPlus", Plus, i => i == 1);
+                SkinMiss plus = ColliderVsSkin(s);
+                ctx.Record("plus", Show(plus));
+                ctx.Record("plus worst", LastWorst);
+                ctx.Record("plus colliders", s.part.GetComponentsInChildren<Collider>(false).Length);
+                foreach (var (name, m) in new[] { ("craft", craft), ("waist+concave", waist), ("plus", plus) })
+                {
+                    Assert.True(m.rays > 1000, $"{name}: the rays hit ({m.rays})");
+                    Assert.True(m.p95Dist < 0.03f, $"{name}: a ray hits the collider within 3 cm of the skin (95%: {m.p95Dist:F3} m)");
+                    Assert.True(m.meanAngle < 5f, $"{name}: the collider's normal is the skin's, near enough (mean {m.meanAngle:F1} deg)");
+                    // the rest: a morph pairs corners with smooth points, so the visible mesh twists a little there and its
+                    // triangles tilt off the true slope; the collider, a hull, is the smoother of the two (1.7 cm apart)
+                    Assert.True(m.p95Angle < 16f, $"{name}: and nearly everywhere (95%: {m.p95Angle:F1} deg)");
+                }
+            }
+            finally { snap.Restore(); Cleanup("ZzPlus"); }
+        }
+
+        // How far a world point is from the visible skin (the side mesh's triangles).
+        private static float SkinDistance(ProceduralShapeSpine s, Vector3 world)
+        {
+            MeshFilter sides = s.part.GetComponentsInChildren<MeshFilter>(true).First(mf => mf.sharedMesh == s.PPart.SidesMesh);
+            Vector3 p = sides.transform.InverseTransformPoint(world);
+            Vector3[] v = s.PPart.SidesMesh.vertices;
+            int[] t = s.PPart.SidesMesh.triangles;
+            float best = float.MaxValue;
+            for (int i = 0; i < t.Length; i += 3)
+                best = Mathf.Min(best, (ProceduralShapeSpine.ClosestOnTriangle(p, v[t[i]], v[t[i + 1]], v[t[i + 2]], out _, out _) - p).magnitude);
+            return best * sides.transform.lossyScale.x;
+        }
+
+        // A node field changed as its PAW control changes it.
+        private static void Edit(ProceduralShapeSpine s, string field, object value)
+        {
+            BaseField f = s.Fields[field];
+            object old = f.GetValue(s);
+            f.SetValue(value, s);
+            s.OnNodeFieldChanged(f, old);
+        }
+
+        // A whole-part dimension changed as its PAW slider changes it (the Procedural Parts path).
+        private static void Dimension(ProceduralShapeSpine s, string field, float value)
+        {
+            BaseField f = s.Fields[field];
+            object old = f.GetValue(s);
+            f.SetValue(value, s);
+            s.OnShapeDimensionChanged(f, old);
+        }
+
+        /// <summary>
+        /// A part surface-attached to the Spine stays on its skin through every kind of edit: node width, height,
+        /// offsets, tilt, section, slope and position, and the part's length and width scale.
+        /// </summary>
+        [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineAttach")]
+        public static IEnumerator Editor_SurfaceAttachmentsStayOnTheSkin(TestContext ctx)
+        {
+            ProceduralShapeSpine s = Spine();
+            Part child = s.part.children.FirstOrDefault();
+            Assert.NotNull(child, "the barometer is attached to the Spine");
+            AttachNode an = child.FindAttachNodeByPart(s.part);
+            Assert.True(an != null && an.nodeType == AttachNode.NodeType.Surface, "surface-attached");
+            Vector3 At() => an.owner.transform.TransformPoint(an.position);
+
+            // onto the skin, between the Mk2 and Rectangle nodes, round from the side
+            MeshFilter sides = s.part.GetComponentsInChildren<MeshFilter>(true).First(mf => mf.sharedMesh == s.PPart.SidesMesh);
+            var go = new GameObject("ZzSkinProbe");
+            go.transform.SetPositionAndRotation(sides.transform.position, sides.transform.rotation);
+            go.transform.localScale = sides.transform.lossyScale;
+            var skin = go.AddComponent<MeshCollider>();
+            skin.sharedMesh = s.PPart.SidesMesh;
+            float y = 0.1f * s.length, th = 40f * Mathf.Deg2Rad, R = 5f;
+            Vector3 o = s.part.transform.TransformPoint(new Vector3(R * Mathf.Cos(th), y, R * Mathf.Sin(th)));
+            var ray = new Ray(o, (s.part.transform.TransformPoint(new Vector3(0f, y, 0f)) - o).normalized);
+            bool onSkin = skin.Raycast(ray, out RaycastHit hit, 2f * R);
+            Object.DestroyImmediate(go);
+            Assert.True(onSkin, "the probe ray hits the skin");
+            child.transform.Translate(hit.point - At(), Space.World);
+            yield return Wait.Frames(2);
+            ctx.Record("start", $"{SkinDistance(s, At()):F4} m off");
+
+            var steps = new (string name, System.Action act)[]
+            {
+                ("select Rectangle node", () => s.SelectNode(2)),
+                ("width", () => Edit(s, "nodeWidth", 2.4f)),
+                ("height", () => Edit(s, "nodeHeight", 1.9f)),
+                ("height offset", () => Edit(s, "nodeOffsetV", 0.4f)),
+                ("width offset", () => Edit(s, "nodeOffsetH", -0.3f)),
+                ("tilt", () => Edit(s, "nodeTiltV", 20f)),
+                ("section", () => Edit(s, "nodeProfileOpt", "Ellipse")),
+                ("select Mk2 node", () => s.SelectNode(1)),
+                ("slope", () => Edit(s, "nodeSlopeOpt", "Concave")),
+                ("position", () => Edit(s, "nodePos", 0.3f)),
+                ("Mk2 width", () => Edit(s, "nodeWidth", 1.6f)),
+                ("length", () => Dimension(s, "length", 5f)),
+                ("width scale", () => Dimension(s, "hScale", 1.3f)),
+            };
+            var fails = new List<string>();
+            foreach (var (name, act) in steps)
+            {
+                Vector3 before = At();
+                act();
+                yield return Wait.Frames(2);
+                float d = SkinDistance(s, At());
+                ctx.Record(name, $"{d:F4} m off, moved {(At() - before).magnitude:F3} m");
+                if (d > 0.01f) fails.Add($"{name}: {d:F3} m off the skin");
+            }
+            Assert.True(fails.Count == 0, "the barometer stays on the skin: " + string.Join("; ", fails));
         }
     }
 }
