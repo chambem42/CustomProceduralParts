@@ -1147,6 +1147,113 @@ namespace CustomProceduralParts.KspTests
             finally { s.length = length0; snap.Restore(); }
         }
 
+        /// <summary>
+        /// A hull built standing up: 47 waterline sections (74 points each) from keel to deck, a shell open on top.
+        /// It rebuilds in well under a second (the shell's inner wall was 6 s of crossing tests), and the sections'
+        /// ring points stay on their features from node to node (a point sliding round the outline is a shard).
+        /// </summary>
+        [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineHorizontal")]
+        public static IEnumerator Editor_ManySectionShellHull(TestContext ctx)
+        {
+            ProceduralShapeSpine s = Spine();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            s._alignKey = null;
+            Vector2[][] al = s.AlignedUnits();
+            ctx.Record("align ms", sw.ElapsedMilliseconds.ToString());
+            sw.Restart();
+            var rings = s.BuildRings();
+            ctx.Record("rings ms", $"{sw.ElapsedMilliseconds} ({rings.Count} rings, {s.Sides} sides)");
+            sw.Restart(); bool[] hard = ProceduralShapeSpine.ComputeHardColumns(rings); ctx.Record("hard ms", $"{sw.ElapsedMilliseconds} ({hard.Count(h => h)} hard)");
+            sw.Restart(); s.BuildInnerRings(rings); ctx.Record("inner ms", sw.ElapsedMilliseconds.ToString());
+            sw.Restart(); s.GenerateSideMesh(rings); ctx.Record("side ms", sw.ElapsedMilliseconds.ToString());
+            sw.Restart(); s.GenerateCapMesh(rings); ctx.Record("cap ms", sw.ElapsedMilliseconds.ToString());
+            sw.Restart(); s.GenerateColliderMesh(rings); ctx.Record("collider ms", sw.ElapsedMilliseconds.ToString());
+            sw.Restart(); s.CalculateVolume(rings); ctx.Record("volume ms", sw.ElapsedMilliseconds.ToString());
+            long update = long.MaxValue;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                sw.Restart();
+                s.UpdateShape(true);
+                update = System.Math.Min(update, sw.ElapsedMilliseconds);
+                ctx.Record($"update ms {pass}", sw.ElapsedMilliseconds.ToString());
+            }
+            yield return Wait.Frames(2);
+            Mesh m = s.PPart.SidesMesh;
+            ctx.Record("side mesh", $"{m.vertexCount} verts, {m.triangles.Length / 3} tris");
+            MeshCollider[] cols = s.part.GetComponentsInChildren<MeshCollider>(true);
+            ctx.Record("colliders", $"{cols.Length}, {cols.Sum(c => c.sharedMesh != null ? c.sharedMesh.vertexCount : 0)} verts");
+
+            // the aligned rings: how far ring point j moves from one node to the next (unit box), and how far it is
+            // from its own section's outline
+            Assert.NotNull(al, "custom sections are aligned");
+            float jump = 0f;
+            int crossings = 0;
+            {
+                var lines = new List<string>();
+                for (int i = 0; i + 1 < al.Length; i++)
+                {
+                    float worst = 0f; int wj = 0;
+                    for (int j = 0; j < al[i].Length; j++)
+                    {
+                        float d = (al[i][j] - al[i + 1][j]).magnitude;
+                        if (d > worst) { worst = d; wj = j; }
+                    }
+                    // ring points out of order around the outline (a ring crossing itself)
+                    int back = 0;
+                    Vector2[] r = al[i];
+                    for (int j = 0; j < r.Length; j++)
+                        for (int k = j + 2; k < r.Length; k++)
+                            if ((j != 0 || k != r.Length - 1) && Cross(r[j], r[(j + 1) % r.Length], r[k], r[(k + 1) % r.Length])) back++;
+                    lines.Add($"{i}->{i + 1}: max jump {worst:F3} at {wj}, crossings {back}");
+                    jump = Mathf.Max(jump, worst);
+                    crossings += back;
+                }
+                ctx.Record("align", string.Join(" | ", lines));
+            }
+            Assert.True(crossings == 0, $"no aligned ring crosses itself ({crossings})");
+            Assert.True(jump < 0.25f, $"ring points keep to their features node to node (worst move {jump:F3} of the unit box)");
+            Assert.True(update < 2000, $"rebuilds quickly ({update} ms)");
+            yield break;
+        }
+
+        /// <summary>Probe: pictures of the many-section hull, to look at its skin (KSP folder, probe/).</summary>
+        [UITest(Kind = "Probe", StartsAt = StartState.Sph, Craft = "SpineHorizontal")]
+        public static IEnumerator Probe_ManySectionHullShots(TestContext ctx)
+        {
+            ProceduralShapeSpine s = Spine();
+            yield return Wait.Frames(5);
+            foreach (var mb in UnityEngine.Object.FindObjectsOfType<MonoBehaviour>())
+                if (mb != null && (mb.GetType().Name == "SPHCamera" || mb.GetType().Name == "VABCamera")) mb.enabled = false;
+            Bounds b = s.part.GetComponentsInChildren<Renderer>().Where(r => r.enabled && r is MeshRenderer).Select(r => r.bounds)
+                .Aggregate((x, y) => { x.Encapsulate(y); return x; });
+            ctx.Record("bounds", b.ToString());
+            string dir = System.IO.Path.Combine(KSPUtil.ApplicationRootPath, "probe");
+            System.IO.Directory.CreateDirectory(dir);
+            int shot = 0;
+            foreach (var (yaw, pitch) in new[] { (90f, 15f), (0f, 15f), (135f, 50f), (45f, -25f) })
+            {
+                Vector3 pos = b.center - Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward * (1.6f * b.size.magnitude);
+                foreach (Camera c in Camera.allCameras)
+                {
+                    if (c == null || c.name.StartsWith("UI")) continue;
+                    if (c.transform.parent != null) c.transform.SetParent(null, true);
+                    c.fieldOfView = 35f;
+                    c.transform.position = pos;
+                    c.transform.LookAt(b.center, Vector3.up);
+                }
+                yield return Wait.Frames(3);
+                string path = System.IO.Path.Combine(dir, $"hull{shot++}.png");
+                ScreenCapture.CaptureScreenshot(path);
+                yield return Wait.Frames(3);
+            }
+        }
+
+        private static bool Cross(Vector2 a, Vector2 b, Vector2 c, Vector2 d)
+        {
+            float O(Vector2 p, Vector2 q, Vector2 r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+            return O(a, b, c) * O(a, b, d) < 0f && O(c, d, a) * O(c, d, b) < 0f;
+        }
+
         // How far a world point is from the visible skin (the side mesh's triangles).
         private static float SkinDistance(ProceduralShapeSpine s, Vector3 world)
         {

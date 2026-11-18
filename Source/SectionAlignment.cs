@@ -28,6 +28,7 @@ namespace CustomProceduralParts
         private const float HardTurnDeg = 20f;  // a vertex turning this much is a corner, kept before any other
         private const float SoftTurnDeg = 0.5f; // below this a vertex is on a straight run and needn't be a ring point
         private const float SameCountSlack = 3f;      // vertex-to-vertex kept unless the warp costs a third as much
+        private const float SnapReach = 0.5f;   // a ring point snaps onto a node's vertex within this many ring spacings
 
         // One node's outline: a closed CCW polygon in the unit box, and which of its vertices are real ones (a
         // custom's vertices; a built-in's samples are only its corners).
@@ -116,7 +117,11 @@ namespace CustomProceduralParts
                     float uj = Frac(targets[j].u - targets[0].u) + targets[0].u;   // unwrapped from the first target up
                     float m = TrackAtU(u, uj);
                     float x = Lerp(f[i], m);
-                    if (targets[j].cluster != null && targets[j].cluster.frac.TryGetValue(i, out float own))
+                    // onto its own vertex in the cluster, if that vertex is where the cluster is: a cluster chained
+                    // across many nodes' vertices can hold one of this node's from well along the track, and
+                    // snapping there drags the point across the outline (a twist in the skin)
+                    Cluster cl = targets[j].cluster;
+                    if (cl != null && cl.frac.TryGetValue(i, out float own) && Mathf.Abs(Wrap(cl.uOf[i] - cl.u)) <= SnapReach / n)
                         x = own + Mathf.Round(x - own);         // the same turn of the perimeter as the track
                     if (x <= prev) x = prev + 1e-4f;
                     fr[j] = prev = x;
@@ -375,6 +380,7 @@ namespace CustomProceduralParts
         }
 
         private static float Frac(float x) => x - Mathf.Floor(x);
+        private static float Wrap(float d) => Frac(d + 0.5f) - 0.5f;   // a difference of fractions, -0.5..0.5
 
         private struct Cand { public float u, frac, turn; public int node; public bool hard; }
 
@@ -383,6 +389,7 @@ namespace CustomProceduralParts
             public float u, weight;
             public bool hard;
             public readonly Dictionary<int, float> frac = new Dictionary<int, float>();   // node -> its vertex's fraction
+            public readonly Dictionary<int, float> uOf = new Dictionary<int, float>();    // node -> that vertex on the track
             private readonly Dictionary<int, float> _turn = new Dictionary<int, float>();
             private float _su, _sw;
 
@@ -394,7 +401,7 @@ namespace CustomProceduralParts
                 u = Frac(_su / _sw);
                 weight += c.turn;
                 hard |= c.hard;
-                if (!_turn.TryGetValue(c.node, out float t) || c.turn > t) { _turn[c.node] = c.turn; frac[c.node] = c.frac; }
+                if (!_turn.TryGetValue(c.node, out float t) || c.turn > t) { _turn[c.node] = c.turn; frac[c.node] = c.frac; uOf[c.node] = c.u; }
             }
         }
 

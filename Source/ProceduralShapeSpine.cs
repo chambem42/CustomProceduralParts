@@ -803,17 +803,47 @@ namespace CustomProceduralParts
                 if (e.x * f.y - e.y * f.x < -1e-6f * (e.sqrMagnitude + f.sqrMagnitude)) convex = false;
             }
             if (convex) return true;
-            for (int i = 0; i < n; i++)
+            return !InnerCrosses(outer, inner);
+        }
+
+        // Does an inner edge cross an outer edge, or a non-adjacent inner edge? A sweep along the outline's long
+        // axis, so only edges side by side along it are tested: a long thin section (a waterline) of n points costs
+        // about n pairs, not n squared, and the shell's thinning search runs this many times per ring.
+        private static bool InnerCrosses(Vector2[] outer, Vector2[] inner)
+        {
+            int n = outer.Length;
+            float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
+            foreach (Vector2 p in outer) { minX = Mathf.Min(minX, p.x); maxX = Mathf.Max(maxX, p.x); minY = Mathf.Min(minY, p.y); maxY = Mathf.Max(maxY, p.y); }
+            int ax = (maxX - minX >= maxY - minY) ? 0 : 1, bx = 1 - ax;
+            // edge e < n: inner edge e; e >= n: outer edge e - n
+            Vector2 A(int e) => e < n ? inner[e] : outer[e - n];
+            Vector2 B(int e) => e < n ? inner[(e + 1) % n] : outer[(e - n + 1) % n];
+            var order = new int[2 * n];
+            var lo = new float[2 * n];
+            for (int e = 0; e < 2 * n; e++) { order[e] = e; lo[e] = Mathf.Min(A(e)[ax], B(e)[ax]); }
+            Array.Sort(lo, order);
+            var active = new List<int>();
+            for (int s = 0; s < order.Length; s++)
             {
-                Vector2 a = inner[i], b = inner[(i + 1) % n];
-                for (int j = 0; j < n; j++)
+                int e = order[s];
+                Vector2 a = A(e), b = B(e);
+                float eLo = lo[s], eMinB = Mathf.Min(a[bx], b[bx]), eMaxB = Mathf.Max(a[bx], b[bx]);
+                active.RemoveAll(f => Mathf.Max(A(f)[ax], B(f)[ax]) < eLo);
+                foreach (int f in active)
                 {
-                    if (SectionGeometry.SegmentsCross(a, b, outer[j], outer[(j + 1) % n])) return false;
-                    if (j <= i + 1 || (i == 0 && j == n - 1)) continue;   // adjacent inner edges share a vertex
-                    if (SectionGeometry.SegmentsCross(a, b, inner[j], inner[(j + 1) % n])) return false;
+                    if (e >= n && f >= n) continue;                     // outer against outer: the section itself
+                    if (e < n && f < n)
+                    {
+                        int d = Math.Abs(e - f);
+                        if (d <= 1 || d == n - 1) continue;             // adjacent inner edges share a vertex
+                    }
+                    Vector2 c = A(f), dd = B(f);
+                    if (Mathf.Max(c[bx], dd[bx]) < eMinB || Mathf.Min(c[bx], dd[bx]) > eMaxB) continue;
+                    if (SectionGeometry.SegmentsCross(a, b, c, dd)) return true;
                 }
+                active.Add(e);
             }
-            return true;
+            return false;
         }
 
         private List<Ring> BuildInnerRings(List<Ring> rings)
@@ -1706,7 +1736,7 @@ namespace CustomProceduralParts
             int hover = -1;
             if (_dragIndex >= 0) { hover = _dragIndex; hoverKind = HoverKind.Node; }
             else if (_tipDragIndex >= 0) { hover = _tipDragIndex; hoverKind = (_tipSide < 0) ? HoverKind.TipLeft : HoverKind.TipRight; }
-            else if (cam != null && !CrossSectionEditor.MouseOverWindow && !SpineOptionsWindow.MouseOverWindow) hover = ComputeHover(cam, out hoverKind);
+            else if (cam != null && !CrossSectionEditor.MouseOverWindow && !SpineOptionsWindow.MouseOverWindow && !PointerOverUi()) hover = ComputeHover(cam, out hoverKind);
 
             Quaternion rot = (cam != null) ? cam.transform.rotation : Quaternion.identity;
             Vector3 up = (cam != null) ? cam.transform.up : Vector3.up;
@@ -1853,6 +1883,12 @@ namespace CustomProceduralParts
             if (i == SelIndex) { nodeWidth = n.sizeH; nodePos = pos; }   // live slider update
             RebuildLive();   // full sync deferred to drag end
         }
+
+        // The pointer is on the game's UI (the PAW, parts list, toolbars): a click there is the UI's, not a handle's
+        // behind it. ClickThroughBlocker only covers IMGUI windows; the PAW is uGUI, so ask its event system, as the
+        // editor does before picking a part.
+        private static bool PointerOverUi() =>
+            UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
 
         private void HandleGizmoInput(Camera cam, HoverKind hoverKind, int hover)
         {

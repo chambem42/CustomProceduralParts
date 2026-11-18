@@ -34,6 +34,7 @@
     <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(RefsDir)UnityEngine.IMGUIModule.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(RefsDir)UnityEngine.InputLegacyModule.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(RefsDir)UnityEngine.PhysicsModule.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(RefsDir)UnityEngine.UI.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(RefsDir)UnityEngine.TextRenderingModule.dll</HintPath><Private>False</Private></Reference>
   </ItemGroup>
 
