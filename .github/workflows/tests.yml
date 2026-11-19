@@ -1,0 +1,40 @@
+name: Tests
+
+# The in-game tests (KspTests/CustomProceduralParts.KspTests.Run) in KSP 1.12.5 on GitHub's runners, through KspTest's
+# reusable workflow: the game from the environment ksp-game (KSP_GAME_KEY, KSP_GAME_TOKEN, KSP_GAME_REPO; without it the
+# tests are skipped), a fork's pull request only once someone with write access has reviewed it and labelled it
+# run-ingame. Built against the game's own assemblies and ProceduralParts from CKAN (.github/ci/refs.sh). The RP-1
+# tooling tests are not run here (an RP-1 instance and an RP-1 build: about 20 minutes).
+
+on:
+  push:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: dotnet test --filter (default all but the Explicit tests)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.event_name == 'push' && github.ref_name != github.event.repository.default_branch && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  ingame:
+    uses: chambem42/KspTest/.github/workflows/ingame.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    secrets: inherit
+    with:
+      test-project: KspTests/CustomProceduralParts.KspTests.Run
+      title: CPP in-game tests
+      mods: ProceduralParts
+      prepare: bash .github/ci/refs.sh
+      filter: ${{ inputs.filter }}

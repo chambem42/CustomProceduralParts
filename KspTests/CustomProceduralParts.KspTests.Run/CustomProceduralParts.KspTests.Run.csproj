@@ -31,7 +31,8 @@
         <!-- ProceduralParts from CKAN (and its dependencies), with the ProceduralParts build this mod is compiled
              against over it, and this mod from source -->
         <KspMod Include="ProceduralParts" />
-        <KspOverlay Include="$(PPGameData)" />
+        <!-- the ProceduralParts build, where there is one (not in CI: CKAN's there) -->
+        <KspOverlay Include="$(PPGameData)" Condition="Exists('$(PPGameData)')" />
         <KspMod Include="..\..\GameData\CustomProceduralParts" />
     </ItemGroup>
 
