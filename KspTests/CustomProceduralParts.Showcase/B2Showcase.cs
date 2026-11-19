@@ -198,8 +198,13 @@ namespace CustomProceduralParts.Showcase
             return new Vector2(v.x, Screen.height - v.y);
         }
 
+        // How fast the drawn cursor moves and drags, against the frame counts the takes give (viewers found 1x slow).
+        internal const float CursorSpeed = 1.5f;
+        internal static int Quick(int frames) => Mathf.Max(1, Mathf.RoundToInt(frames / CursorSpeed));
+
         internal static IEnumerator MoveCursor(Func<Vector2> to, int n)
         {
+            n = Quick(n);
             FrameRecorder.CursorVisible = true;
             Vector2 from = FrameRecorder.CursorPos;
             for (int i = 1; i <= n; ++i)
@@ -288,6 +293,7 @@ namespace CustomProceduralParts.Showcase
             FrameRecorder.CursorPressed = true;
             yield return Frames(5, null);
             ed._drag = i;
+            n = Quick(n);
             for (int k = 1; k <= n; k++)
             {
                 Vector2 raw = Vector2.Lerp(from, to, Smooth((float)k / n));
