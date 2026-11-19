@@ -12,7 +12,7 @@ using static CustomProceduralParts.Showcase.SpineBasicsShowcase;
 namespace CustomProceduralParts.Showcase
 {
     /// <summary>
-    /// A showcase video of RP-1 tooling for a Spine tank (RP-1's ModuleToolingProcSpine; RO's procedural tank,
+    /// A showcase video of RP-1 tooling for a Spine tank (RP-1's ModuleToolingPTank; RO's procedural tank,
     /// RO-RFTank-Separate), not a check: the PAW's two tooling lines (the widest and the narrowest bounding
     /// cylinder at the part's length, each tooled or not); tooling it from the PAW and RP-1's purchase dialog; a reshape
     /// inside those sizes that stays tooled; a wider one that needs (cheaper) tooling again. RP-1 is reached by
@@ -22,7 +22,7 @@ namespace CustomProceduralParts.Showcase
     /// </summary>
     public static class Rp1ToolingShowcase
     {
-        private const string Max = "toolingMax", Min = "toolingMin";   // ModuleToolingProcSpine's PAW lines for a Spine
+        private const string Max = "toolingMax", Min = "toolingMin";   // ModuleToolingPTank's PAW lines for a Spine
 
         [UITest(Kind = "Showcase", Explicit = true, NewGame = "career", Isolated = true, Requires = "RP-1", StartsAt = StartState.Vab, Craft = "SpineTank", TimeoutSec = 3600)]
         public static IEnumerator Showcase_Rp1Tooling(TestContext ctx)
@@ -30,7 +30,7 @@ namespace CustomProceduralParts.Showcase
             yield return Wait.Frames(30);
             Part part = EditorLogic.fetch.ship.parts.First(p => p.FindModuleImplementing<ProceduralShapeSpine>() != null);
             ProceduralShapeSpine s = part.FindModuleImplementing<ProceduralShapeSpine>();
-            PartModule tool = part.Modules.Cast<PartModule>().FirstOrDefault(m => m.moduleName == "ModuleToolingProcSpine");
+            PartModule tool = part.Modules.Cast<PartModule>().FirstOrDefault(m => m.moduleName == "ModuleToolingPTank");
             Assert.NotNull(tool, "the tank has RP-1's proc tank tooling");
             var rp1 = new Rp1(tool);
             rp1.Fund();

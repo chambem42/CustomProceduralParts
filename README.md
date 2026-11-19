@@ -71,10 +71,9 @@ RP-1 tools a Spine tank, structural part, nose cone or crew tube as two bounding
 narrowest and its widest section, both at the part's length (one tooling when the section doesn't
 change); a cylinder already tooled isn't charged again. The part menu lists both cylinders and
 whether each is tooled, updated as you reshape the part. Procedural avionics can't be a Spine. That's
-RP-1's own code (its `ModuleToolingProcSpine`, swapped in for `ModuleToolingPTank` when this mod is
-installed, from the Spine's `MinBoundingDiameter`, `MaxDiameter` and `Length`), so this mod has
-nothing RP-1 specific. An RP-1 without it tools a Spine by the size of the part's hidden Cylinder
-shape.
+RP-1's own code (its `ModuleToolingPTank`, from the Spine's `MinBoundingDiameter`, `MaxDiameter`
+and `Length`), so this mod has nothing RP-1 specific. An RP-1 without it tools a Spine by the size
+of the part's hidden Cylinder shape.
 
 ## Tests
 

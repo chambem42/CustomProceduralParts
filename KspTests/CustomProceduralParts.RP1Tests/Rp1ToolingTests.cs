@@ -9,8 +9,7 @@ using RP0;
 namespace CustomProceduralParts.RP1Tests
 {
     /// <summary>
-    /// RP-1's tooling of Spine parts (ModuleToolingProcSpine, which RP-1's Tooling/CustomProceduralParts.cfg swaps in for
-    /// ModuleToolingPTank on a part that can be a Spine; it reads the Spine's MinBoundingDiameter) in a game with RP-1
+    /// RP-1's tooling of Spine parts (ModuleToolingPTank, from the Spine's MinBoundingDiameter) in a game with RP-1
     /// from CKAN, its RP0.dll one with Spine tooling (see the Run project). SpineTest is one proceduralStructural part (RP-1
     /// tools it as Stringers) with a Spine whose section varies: 1.5 m round, 2.2 x 1.2, 1.8 x 1.4, 0.6 m round.
     /// </summary>
@@ -21,9 +20,9 @@ namespace CustomProceduralParts.RP1Tests
 
         private static List<SpineNode> Snapshot(ProceduralShapeSpine s) => s.nodes.Select(n => n.Clone()).ToList();
 
-        // ModuleToolingProcSpine and its two PAW lines for a Spine, and their refresh: by name, so the tests build against an
-        // RP0.dll from before RP-1 tooled Spines (the RP-1 they run with is the Run project's Rp1Source)
-        private const string SpineTooling = "ModuleToolingProcSpine";
+        // ModuleToolingPTank's two PAW lines for a Spine and their refresh: by name, so the tests build against an RP0.dll
+        // from before RP-1 tooled Spines (the RP-1 they run with is the Run project's Rp1Source)
+        private static bool ToolsSpines => typeof(ModuleToolingPTank).GetMethod("UpdatePawLines") != null;
         private static string Max(ModuleToolingPTank t) => t.Fields["toolingMax"]?.GetValue<string>(t) ?? "";
         private static string Min(ModuleToolingPTank t) => t.Fields["toolingMin"]?.GetValue<string>(t) ?? "";
         private static void Refresh(ModuleToolingPTank t) => t.GetType().GetMethod("UpdatePawLines")?.Invoke(t, null);
@@ -52,7 +51,7 @@ namespace CustomProceduralParts.RP1Tests
         {
             yield return Wait.Frames(10);
             // this RP-1 tools a Spine itself
-            Assert.NotNull(typeof(ModuleToolingPTank).Assembly.GetType("RP0." + SpineTooling), $"RP-1 has {SpineTooling}");
+            Assert.True(ToolsSpines, "RP-1's ModuleToolingPTank tools Spines");
             var spineParts = PartLoader.LoadedPartsList.Select(a => a.partPrefab)
                 .Where(p => p != null && p.FindModuleImplementing<ProceduralShapeSpine>() != null).ToList();
             var tooled = spineParts.Where(p => p.FindModuleImplementing<ModuleToolingPTank>() != null).ToList();
@@ -64,13 +63,11 @@ namespace CustomProceduralParts.RP1Tests
                 Part prefab = PartLoader.getPartInfoByName(name)?.partPrefab;
                 Assert.NotNull(prefab, $"{name} is loaded");
                 Assert.NotNull(prefab.FindModuleImplementing<ProceduralShapeSpine>(), $"{name} can be a Spine");
-                Assert.True(prefab.FindModuleImplementing<ModuleToolingPTank>()?.GetType().Name == SpineTooling, $"{name}'s tooling is {SpineTooling}");
+                // the module saved craft have, not a subclass swapped in for it
+                Assert.True(prefab.FindModuleImplementing<ModuleToolingPTank>()?.GetType() == typeof(ModuleToolingPTank), $"{name}'s tooling is ModuleToolingPTank");
             }
             Has("proceduralStructural");
             Has("RO-RFTank-Separate");
-            // every part that can be a Spine and has proc tooling has the Spine's
-            var plain = tooled.Where(p => p.FindModuleImplementing<ModuleToolingPTank>().GetType() == typeof(ModuleToolingPTank)).ToList();
-            Assert.True(plain.Count == 0, $"Spine parts with plain ModuleToolingPTank: {string.Join(" ", plain.Select(p => p.partInfo.name))}");
             // and RP-1 takes the Spine off procedural avionics (one diameter x length tooling)
             Part avionics = PartLoader.getPartInfoByName("proceduralAvionics")?.partPrefab;
             Assert.NotNull(avionics, "proceduralAvionics is loaded");
@@ -93,7 +90,7 @@ namespace CustomProceduralParts.RP1Tests
             Part part = Body();
             var spine = part.FindModuleImplementing<ProceduralShapeSpine>();
             var tool = part.FindModuleImplementing<ModuleToolingPTank>();
-            Assert.True(tool?.GetType().Name == SpineTooling, $"the part has {SpineTooling}");
+            Assert.NotNull(tool, "the part has ModuleToolingPTank");
             float maxD = spine.MaxDiameter, minD = spine.MinBoundingDiameter, len = spine.length;
             ctx.Record("max", maxD);
             ctx.Record("min", minD);

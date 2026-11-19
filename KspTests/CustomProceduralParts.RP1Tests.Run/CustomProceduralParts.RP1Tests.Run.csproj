@@ -17,7 +17,7 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <Rp1Source Condition="'$(Rp1Source)' == ''">https://github.com/chambem42/RP-1@4bdf2a17b/GameData/RP-1?build=Source/RP0-CI.slnf&amp;over</Rp1Source>
+        <Rp1Source Condition="'$(Rp1Source)' == ''">https://github.com/chambem42/RP-1@29d7b668f/GameData/RP-1?build=Source/RP0-CI.slnf&amp;over</Rp1Source>
     </PropertyGroup>
 
     <ItemGroup>
