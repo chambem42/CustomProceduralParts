@@ -38,4 +38,6 @@ jobs:
       legs: '["windows", "linux"]'
       mods: ProceduralParts
       prepare: bash .github/ci/refs.sh
+      # line coverage of the mod (Windows leg; the report in its summary)
+      coverage: GameData/CustomProceduralParts/Plugins/CustomProceduralParts.dll
       filter: ${{ inputs.filter }}
