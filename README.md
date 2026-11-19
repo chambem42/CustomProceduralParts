@@ -87,9 +87,9 @@ checked out beside this repo; `KspTests/Directory.Build.props.user` holds local 
 RP-1's tooling of Spines has its own: `dotnet test KspTests/CustomProceduralParts.RP1Tests.Run`, in
 an instance with RP-1 and its dependencies from CKAN (several GB, made once from the CKAN download
 cache). KspTest builds RP-1 itself from source over CKAN's copy: until a release tools Spines, the
-branch that does. `-p:Rp1Repo=<folder or GitHub owner/name>` with `-p:Rp1Ref=<branch>` or
-`-p:Rp1Pr=<number>` picks another (a folder alone: its checkout as it is), `-p:Rp1Repo=ckan` CKAN's
-release. Building it needs Visual Studio's MSBuild.
+commit that does (`Rp1Source` in the project, a KspTest repository mod). `-p:Rp1Source=<spec>` picks
+another (`file:///path/to/RP-1@<commit>/GameData/RP-1?build=Source/RP0-CI.slnf&over` for a local
+clone), `-p:Rp1Source=ckan` CKAN's release. Building it needs MSBuild (Visual Studio's on Windows).
 
 Showcase videos are recorded the same way but kept apart (each wants an instance with extra mods):
 `dotnet test KspTests/CustomProceduralParts.Showcase.Run --filter FullyQualifiedName~Showcase_B2Fuselage`

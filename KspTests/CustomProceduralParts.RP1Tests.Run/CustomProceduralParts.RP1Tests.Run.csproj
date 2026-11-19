@@ -4,10 +4,9 @@
         Runs the RP-1 tooling tests (CustomProceduralParts.RP1Tests) with dotnet test, in a KSP instance with RP-1 from
         CKAN and its dependencies (RealismOverhaul, RSS and the rest: GBs, built once from the CKAN cache and reused),
         ProceduralParts from CKAN as players get it, and this mod from source. RSS needs one texture pack.
-        RP-1 itself is built from source over CKAN's copy (KspModSource): until a release tools Spines, the branch that
-        does. Another with -p:Rp1Repo=<folder or GitHub owner/name> and -p:Rp1Ref=<branch> or -p:Rp1Pr=<number> (a
-        folder with neither: its checkout as it is; a relative folder is from this project's); CKAN's alone with
-        -p:Rp1Repo=ckan.
+        RP-1 itself is built from source over CKAN's copy (a KspTest repository mod, Rp1Source): until a release tools
+        Spines, the commit that does. -p:Rp1Source=<another such spec> for another (a local clone as
+        file:///path/to/RP-1@commit/...), -p:Rp1Source=ckan for CKAN's alone.
     -->
     <PropertyGroup>
         <TargetFramework>net8.0</TargetFramework>
@@ -17,9 +16,8 @@
         <IsTestProject>true</IsTestProject>
     </PropertyGroup>
 
-    <PropertyGroup Condition="'$(Rp1Repo)' == ''">
-        <Rp1Repo>chambem42/RP-1</Rp1Repo>
-        <Rp1Ref>feat/proc-spine-tooling</Rp1Ref>
+    <PropertyGroup>
+        <Rp1Source Condition="'$(Rp1Source)' == ''">https://github.com/chambem42/RP-1@1f611529b/GameData/RP-1?build=Source/RP0-CI.slnf&amp;over</Rp1Source>
     </PropertyGroup>
 
     <ItemGroup>
@@ -46,7 +44,7 @@
         <KspMod Include="KSPBurst" />
         <KspMod Include="ProceduralParts" />
         <KspMod Include="..\..\GameData\CustomProceduralParts" />
-        <KspModSource Include="RP-1" Repo="$(Rp1Repo)" Ref="$(Rp1Ref)" Pr="$(Rp1Pr)" Condition="'$(Rp1Repo)' != 'ckan'" />
+        <KspMod Include="$(Rp1Source)" Condition="'$(Rp1Source)' != 'ckan'" />
     </ItemGroup>
 
     <ItemGroup>
