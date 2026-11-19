@@ -358,12 +358,14 @@ namespace CustomProceduralParts.KspTests
             {
                 yield return Imgui.WaitWindow("Spine Cross Sections");
                 // the harness sets a field's text without focusing it: focus it as a click would
+                // (kept until it has: in batchmode KspTest finds behaviours with an OnGUI only twice a second)
+                var ed = Object.FindObjectOfType<CrossSectionEditor>();
                 var focus = new GameObject("ZzFocus").AddComponent<FocusNamed>();
                 focus.Name = CrossSectionEditor.SaveAsControl;
-                yield return Wait.Frames(3);
+                for (int f = 0; f < 300 && !ed._typing; f++)
+                    yield return null;
                 Object.Destroy(focus.gameObject);
                 yield return Wait.Frames(2);
-                var ed = Object.FindObjectOfType<CrossSectionEditor>();
                 Assert.True(ed._typing, "the Save-as field has focus");
                 // move the window off the pointer (far off screen: batchmode's screen and pointer aren't real ones), so
                 // the lock must come from typing alone
@@ -801,7 +803,9 @@ namespace CustomProceduralParts.KspTests
                 ctx.Record("list", ed._dropRect.ToString());
                 Assert.True(ed._dropOpen, "the list stays open");
                 Assert.Near(before.height, ed._win.height, 0.5, "dialog height with the list open");
-                Assert.True(ed._dropRect.height > 100f && ed._dropRect.y >= ed._win.y, "the list hangs under the dialog's top");
+                // under the dialog's top, or as far down as the screen lets it (Linux batchmode's is 640x480)
+                Assert.True(ed._dropRect.height > 100f && ed._dropRect.y >= Mathf.Min(ed._win.y, Mathf.Max(0f, Screen.height - ed._dropRect.height)),
+                            "the list hangs under the dialog's top");
                 Assert.True(ed._dropList != null && ed._dropList.Count > 0, "the list has entries");
                 CrossSection pick = ed._dropList.Select(e => e.Item1).First(c => c.name == "Rectangle");
                 ed.Select(pick, false);
