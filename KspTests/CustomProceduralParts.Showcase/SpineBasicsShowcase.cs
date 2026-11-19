@@ -25,6 +25,9 @@ namespace CustomProceduralParts.Showcase
         private const string Win = "Spine Cross Sections";
         private const string Hull = "Boat hull";
 
+        // The craft's one part's Spine (after an undo, the part that replaced it).
+        private static ProceduralShapeSpine Spine0() => EditorLogic.fetch.ship.parts[0].FindModuleImplementing<ProceduralShapeSpine>();
+
         [UITest(Kind = "Showcase", Explicit = true, StartsAt = StartState.Sph, Craft = "SpineBasics", TimeoutSec = 3600)]
         public static IEnumerator Showcase_SpineBasics(TestContext ctx)
         {
@@ -71,28 +74,28 @@ namespace CustomProceduralParts.Showcase
                 rec.Caption("Pick Spine in the Shape list", "Works on any Procedural Parts part: tanks, structural parts, nose cones, crew tubes...");
                 FrameRecorder.CursorPos = new Vector2(0.5f * Screen.width, 0.6f * Screen.height);
                 yield return PawChoose(part, "shapeName", "Spine", () => pp.SetShapeName("Spine"));
-                yield return Frames(30, null);
+                yield return Frames(15, null);
 
                 rec.Caption("Length", "The body stretches between its first and last nodes");
                 yield return PawFloat(part, s, "length", 2f, 8f, f => Cam(home, 130, 20, Mathf.Lerp(9f, 15f, f), -0.02f));
-                yield return Frames(15, null);
+                yield return Frames(8, null);
 
                 // ---- one node's controls ----------------------------------------------------------------------------
                 rec.Caption("Nodes", "Each node is one cross-section. Pick one with the Node slider (or click it), then shape it");
                 yield return PawFloat(part, s, "selectedNode", 0f, 1f);
-                yield return Frames(20, null);
+                yield return Frames(10, null);
                 rec.Caption("Width and height", "Set for each node, in meters");
                 yield return PawFloat(part, s, "nodeWidth", s.nodeWidth, 2.5f);
                 yield return PawFloat(part, s, "nodeHeight", s.nodeHeight, 2.0f);
-                yield return Frames(15, null);
+                yield return Frames(8, null);
 
                 rec.Caption("Section", "The cross-section's shape: Ellipse, Rectangle, Mk2, Mk3, or one you draw");
                 yield return PawChoose(part, "nodeProfileOpt", "Rectangle", () => SetField(s, "nodeProfileOpt", "Rectangle"));
-                yield return Frames(30, null);
+                yield return Frames(15, null);
                 yield return PawChoose(part, "nodeProfileOpt", "Mk2", () => SetField(s, "nodeProfileOpt", "Mk2"));
-                yield return Frames(30, null);
+                yield return Frames(15, null);
                 yield return PawChoose(part, "nodeProfileOpt", "Mk3", () => SetField(s, "nodeProfileOpt", "Mk3"));
-                yield return Frames(30, null);
+                yield return Frames(15, null);
 
                 // each step goes on from where the last left the part: nothing is clicked back
                 rec.Caption("Slope", "How the body curves from this node to the next");
@@ -100,22 +103,23 @@ namespace CustomProceduralParts.Showcase
                 {
                     string sl = slope;
                     yield return PawChoose(part, "nodeSlopeOpt", sl, () => SetField(s, "nodeSlopeOpt", sl));
-                    yield return Frames(28, null);
+                    yield return Frames(14, null);
                 }
 
                 rec.Caption("Offsets and tilt", "Move a node up, down or sideways, or tilt it");
                 yield return PawFloat(part, s, "nodeOffsetV", s.nodes[s.SelIndex].offsetV, 0.8f);
                 yield return PawFloat(part, s, "nodeOffsetH", s.nodes[s.SelIndex].offsetH, -0.6f);
                 yield return PawFloat(part, s, "nodeTiltV", s.nodes[s.SelIndex].tiltV, 25f);
-                yield return Frames(15, null);
+                yield return Frames(8, null);
+                string afterOffsets = s.DumpAll();   // where undo goes back to, after the mouse controls
 
                 rec.Caption("Add and remove nodes", "A new node copies the selected one, halfway to the next");
                 yield return ClickPawButton(part, "Add node in front", () => s.AddNodeInFrontEvent());
-                yield return Frames(30, null);
+                yield return Frames(15, null);
                 yield return ClickPawButton(part, "Add node behind", () => s.AddNodeBehindEvent());
-                yield return Frames(30, null);
+                yield return Frames(15, null);
                 yield return ClickPawButton(part, "Remove node", () => s.RemoveNodeEvent());
-                yield return Frames(25, null);
+                yield return Frames(13, null);
 
                 // ---- the gizmo -----------------------------------------------------------------------------------------
                 yield return FrameRecorder.Card("Mouse Controls", 0f, 1f, 18);
@@ -168,6 +172,34 @@ namespace CustomProceduralParts.Showcase
                 FrameRecorder.CursorVisible = false;
                 SpineSettings.Set(SpineHandleVis.Active, SpineSettings.ClickBeforeDrag, true);   // the hull keeps the outlines
                 yield return Frames(20, null);
+
+                // ---- undo, back to the body as the offsets and tilt left it ---------------------------------------------
+                // Each press one step: the PAW and handle edits since then, each a step (repeats of one control one
+                // step). Undo replaces the part, so it's looked up again after.
+                {
+                    var restore = typeof(EditorLogic).GetMethod("RestoreState", BindingFlags.Instance | BindingFlags.NonPublic);
+                    int presses = 0;
+                    while (presses < 25 && Spine0().DumpAll() != afterOffsets)
+                    {
+                        presses++;
+                        rec.Caption($"Undo x {presses}", "Ctrl+Z steps back one change at a time: here to the offsets and tilt from before");
+                        restore.Invoke(EditorLogic.fetch, new object[] { -1 });
+                        yield return Frames(presses == 1 ? 18 : 9, null);   // presses after the first: twice as quick
+                    }
+                    ctx.Record("undoPresses", presses);
+                    part = EditorLogic.fetch.ship.parts[0];
+                    pp = part.FindModuleImplementing<ProceduralPart>();
+                    s = part.FindModuleImplementing<ProceduralShapeSpine>();
+                    Assert.Equal(afterOffsets, s.DumpAll(), $"{presses} undos back to the offsets and tilt");
+                    part.SetHighlightType(Part.HighlightType.Disabled);
+                    part.SetHighlight(false, false);
+                    yield return Paw.Open(part);   // the undone part's PAW closed with it
+                    yield return Frames(4, null);
+                    MovePaw(part, new Vector2(Screen.width - 440f, 40f));
+                    Pointer(false);
+                    yield return Frames(24, null);
+                    mid = Mathf.Clamp(s.SelIndex, 1, s.nodes.Count - 2);
+                }
 
                 // ---- attaching parts ------------------------------------------------------------------------------------
                 yield return FrameRecorder.Card("Attaching Parts", 0f, 1f, 18);
@@ -555,14 +587,14 @@ namespace CustomProceduralParts.Showcase
                 Unlock(field);
                 if (up) it.OnTap_inc(); else it.OnTap_dec();
                 FrameRecorder.CursorPressed = false;
-                yield return Frames(again ? 2 : 6, null);
+                yield return Frames(again ? 2 : 3, null);
             }
             if (!(Item() is UIPartActionChooseOption done) || Value(done) != option)
             {
                 Debug.LogWarning($"[SpineBasicsShowcase] {field}: the PAW didn't reach {option}; set directly");
                 act();
             }
-            yield return Frames(6, null);
+            yield return Frames(3, null);
         }
 
         // A PAW float changed through its own controls, as a player would, so the PAW shows it. An edit field: its
@@ -602,7 +634,7 @@ namespace CustomProceduralParts.Showcase
                 yield return Frames(3, null);
                 Item().slider.normalizedValue = t;
                 FrameRecorder.CursorPressed = false;
-                yield return Frames(6, Ease);
+                yield return Frames(3, Ease);
                 yield break;
             }
 
@@ -627,10 +659,10 @@ namespace CustomProceduralParts.Showcase
                 if (large) { if (up) e.OnTap_incLarge(); else e.OnTap_decLarge(); }
                 else { if (up) e.OnTap_incSmall(); else e.OnTap_decSmall(); }
                 FrameRecorder.CursorPressed = false;
-                yield return Frames(again ? 3 : 6, Ease);
+                yield return Frames(3, Ease);
             }
             Debug.Log($"[SpineBasicsShowcase] {field}: {from} -> {Cur()} (asked {to})");
-            yield return Frames(8, Ease);
+            yield return Frames(4, Ease);
         }
 
         // A UI element's centre in GUI coordinates (y down).
@@ -685,6 +717,7 @@ namespace CustomProceduralParts.Showcase
         {
             yield return MoveCursor(() => ScreenOf(grab()), 18);
             FrameRecorder.CursorPressed = true;
+            s.StartDragUndo();   // as the gizmo's own drag: one undo step
             yield return Frames(5, null);
             n = Quick(n);
             for (int k = 1; k <= n; k++)
@@ -695,6 +728,8 @@ namespace CustomProceduralParts.Showcase
                 yield return null;
             }
             s.RebuildAndPropagate();
+            s._dragMoved = true;
+            s.EndDragUndo();
             s.LoadProxyFromNode();
             MonoUtilities.RefreshPartContextWindow(s.part);
             FrameRecorder.CursorPressed = false;

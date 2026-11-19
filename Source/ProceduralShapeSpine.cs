@@ -113,10 +113,12 @@ namespace CustomProceduralParts
         {
             points = Mathf.Clamp(points, MinSides, PointChoices[PointChoices.Length - 1]);
             if (points == sectionPoints) return;
+            ConfigNode pre = SpineUndo.Before(this, nameof(sectionPoints));
             sectionPoints = points;
             foreach (Part p in part.symmetryCounterparts)
                 if (FindAbstractShapeModule(p, this) is ProceduralShapeSpine m) m.sectionPoints = points;
             RebuildAndPropagate();
+            SpineUndo.After(this, nameof(sectionPoints), pre);
         }
 
         [KSPField] public string TopNodeName = "top";
@@ -194,6 +196,7 @@ namespace CustomProceduralParts
                 ScreenMessages.PostScreenMessage($"No room to add a node {(inFront ? "in front" : "behind")}.", 4f, ScreenMessageStyle.UPPER_CENTER);
                 return;
             }
+            ConfigNode pre = SpineUndo.Before(this, null);
             SpineNode add = cur.Clone();
             add.position = 0.5f * (cur.position + bound);
             nodes.Add(add);
@@ -204,6 +207,7 @@ namespace CustomProceduralParts
             LoadProxyFromNode();
             FollowSelected();
             RebuildAndPropagate();
+            SpineUndo.After(this, null, pre);
             MonoUtilities.RefreshPartContextWindow(part);
         }
 
@@ -215,6 +219,7 @@ namespace CustomProceduralParts
                 ScreenMessages.PostScreenMessage("Spine needs at least 2 nodes.", 4f, ScreenMessageStyle.UPPER_CENTER);
                 return;
             }
+            ConfigNode pre = SpineUndo.Before(this, null);
             nodes.RemoveAt(SelIndex);
             selectedNode = Mathf.Clamp((int)selectedNode, 0, nodes.Count - 1);
             ClampNodeSizes();   // dropping to two nodes can leave both ends closed -> reopen one
@@ -222,6 +227,7 @@ namespace CustomProceduralParts
             LoadProxyFromNode();
             FollowSelected();
             RebuildAndPropagate();
+            SpineUndo.After(this, null, pre);
             MonoUtilities.RefreshPartContextWindow(part);
         }
 
@@ -423,9 +429,9 @@ namespace CustomProceduralParts
             if (HighLogic.LoadedSceneIsEditor)
             {
                 UpdateTechConstraints();
-                Fields[nameof(length)].uiControlEditor.onFieldChanged = OnShapeDimensionChanged;
-                Fields[nameof(hScale)].uiControlEditor.onFieldChanged = OnShapeDimensionChanged;
-                Fields[nameof(vScale)].uiControlEditor.onFieldChanged = OnShapeDimensionChanged;
+                Fields[nameof(length)].uiControlEditor.onFieldChanged = OnDimensionChanged;
+                Fields[nameof(hScale)].uiControlEditor.onFieldChanged = OnDimensionChanged;
+                Fields[nameof(vScale)].uiControlEditor.onFieldChanged = OnDimensionChanged;
 
                 Fields[nameof(selectedNode)].uiControlEditor.onFieldChanged = OnSelectedNodeChanged;
                 UI_ChooseOption slopeOpt = Fields[nameof(nodeSlopeOpt)].uiControlEditor as UI_ChooseOption;
@@ -442,8 +448,8 @@ namespace CustomProceduralParts
                 Fields[nameof(nodePos)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
                 Fields[nameof(nodeOffsetV)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
                 Fields[nameof(nodeOffsetH)].uiControlEditor.onFieldChanged = OnNodeFieldChanged;
-                Fields[nameof(shellMode)].uiControlEditor.onFieldChanged = (f, o) => { UpdateShellVisibility(); RebuildAndPropagate(); };
-                Fields[nameof(shellThickness)].uiControlEditor.onFieldChanged = (f, o) => RebuildAndPropagate();
+                Fields[nameof(shellMode)].uiControlEditor.onFieldChanged = (f, o) => Undoable(f, o, () => { UpdateShellVisibility(); RebuildAndPropagate(); });
+                Fields[nameof(shellThickness)].uiControlEditor.onFieldChanged = (f, o) => Undoable(f, o, RebuildAndPropagate);
 
                 UpdateShellVisibility();
 
@@ -453,6 +459,30 @@ namespace CustomProceduralParts
         }
 
         private bool _subscribed;
+
+        // A PAW field's change as an undo step (SpineUndo): the ship recorded as it was before (the field still
+        // at its old value, nothing else changed yet), the change, the step recorded. Repeats of the field on
+        // the same node join one step.
+        private void Undoable(BaseField f, object old, Action change)
+        {
+            // the PAW re-sends a value now and then (after a rebuild refreshes it) a rounding off: not a step
+            object cur = f.GetValue(this);
+            if (Equals(cur, old) || cur is float a && old is float b && Mathf.Abs(a - b) <= 1e-4f * Mathf.Max(1f, Mathf.Abs(a)))
+            { change(); return; }
+            string key = f.name + "#" + SelIndex;
+            ConfigNode pre = null;
+            if (SpineUndo.WantsBefore(this, key))
+            {
+                object now = f.GetValue(this);
+                f.SetValue(old, this);
+                try { pre = SpineUndo.Snapshot(); }
+                finally { f.SetValue(now, this); }
+            }
+            change();
+            SpineUndo.After(this, key, pre);
+        }
+
+        private void OnDimensionChanged(BaseField f, object old) => Undoable(f, old, () => OnShapeDimensionChanged(f, old));
 
         // A custom section was saved / changed / deleted: refresh the Section list, and re-loft if any
         // node uses it. Symmetry counterparts get their own call, so no SyncToSymmetry here.
@@ -1589,6 +1619,11 @@ namespace CustomProceduralParts
             if (_rebuilding) return;
             if (Equals(f.GetValue(this), obj)) return;
             if (nodes.Count == 0) return;
+            Undoable(f, obj, () => ApplyNodeField(f, obj));
+        }
+
+        private void ApplyNodeField(BaseField f, object obj)
+        {
             SpineNode n = nodes[SelIndex];
             Debug.Log($"{ModTag} OnNodeFieldChanged {f.name}: {obj} -> {f.GetValue(this)} | sel={SelIndex}/{nodes.Count} before: {Dump(n)}");
             try
@@ -1703,6 +1738,8 @@ namespace CustomProceduralParts
         private readonly List<GameObject> _leftTips = new List<GameObject>();      // left mesh-edge handle
         private readonly List<GameObject> _rightTips = new List<GameObject>();     // right mesh-edge handle
         private int _dragIndex = -1;     // node being centre-offset dragged
+        private bool _dragMoved;         // this drag changed something: one undo step on release
+        private ConfigNode _dragPre;     // the ship before it, if the undo list wants that (SpineUndo)
         private int _dragAxis;           // 0 = vertical (left-drag), 1 = horizontal (right-drag)
         private int _tipDragIndex = -1;  // node whose tip is being dragged
         private int _tipSide;            // -1 = left tip, +1 = right tip
@@ -1881,6 +1918,7 @@ namespace CustomProceduralParts
             if (Mathf.Approximately(newH, n.sizeH) && Mathf.Approximately(pos, n.position)) return;   // no change
             n.sizeH = newH;
             n.position = pos;
+            _dragMoved = true;
             if (i == SelIndex) { nodeWidth = n.sizeH; nodePos = pos; }   // live slider update
             RebuildLive();   // full sync deferred to drag end
         }
@@ -1907,6 +1945,7 @@ namespace CustomProceduralParts
                 {
                     _dragIndex = -1;
                     RebuildAndPropagate();   // one full interop + symmetry sync on release
+                    EndDragUndo();
                     if (_dragAxis == 1) nodeOffsetH = nodes[SelIndex].offsetH;
                     else nodeOffsetV = nodes[SelIndex].offsetV;
                     _dragAxis = 0;
@@ -1926,6 +1965,7 @@ namespace CustomProceduralParts
                 {
                     _tipDragIndex = -1;
                     RebuildAndPropagate();   // one full interop + symmetry sync on release
+                    EndDragUndo();
                     SpineNode sn = nodes[SelIndex];
                     nodeWidth = sn.sizeH;
                     nodePos = sn.position;
@@ -1953,6 +1993,7 @@ namespace CustomProceduralParts
                         _tipDragIndex = hover;
                         _tipSide = (hoverKind == HoverKind.TipLeft) ? -1 : 1;
                         _dragSelf = SelfSnap(_built);
+                        StartDragUndo();
                         // Capture the grab offset so the drag moves by the cursor delta, not snapping the
                         // value to the (possibly off-tip) grab point.
                         if (RawTip(hover, cam.ScreenPointToRay(Input.mousePosition), out float rw, out float rp))
@@ -1976,6 +2017,7 @@ namespace CustomProceduralParts
                             _dragAxis = 0;
                             _grabDeltaV = nodes[hover].offsetV - RawVertical(hover, cam.ScreenPointToRay(Input.mousePosition));
                             _dragSelf = SelfSnap(_built);
+                            StartDragUndo();
                         }
                     }
                     else if (Input.GetMouseButtonDown(1))
@@ -1988,6 +2030,7 @@ namespace CustomProceduralParts
                             _dragAxis = 1;
                             _grabDeltaH = nodes[hover].offsetH - RawHorizontal(hover, cam.ScreenPointToRay(Input.mousePosition));
                             _dragSelf = SelfSnap(_built);
+                            StartDragUndo();
                         }
                     }
                     else if (!Mathf.Approximately(Input.mouseScrollDelta.y, 0f)) ResizeNode(hover, Input.mouseScrollDelta.y);
@@ -2052,6 +2095,20 @@ namespace CustomProceduralParts
             return Vector2.Distance(new Vector2(sc.x, sc.y), new Vector2(se.x, se.y)) + 3f;
         }
 
+        // A handle drag is one undo step, recorded on release if it changed anything.
+        private void StartDragUndo()
+        {
+            _dragMoved = false;
+            _dragPre = SpineUndo.Before(this, null);
+        }
+
+        private void EndDragUndo()
+        {
+            if (_dragMoved) SpineUndo.After(this, null, _dragPre);
+            _dragMoved = false;
+            _dragPre = null;
+        }
+
         private void SelectNode(int i)
         {
             selectedNode = Mathf.Clamp(i, 0, nodes.Count - 1);
@@ -2063,11 +2120,14 @@ namespace CustomProceduralParts
         private void CycleProfile(int i)
         {
             SpineNode n = nodes[i];
+            string key = "profile#" + i;   // clicks on through the shapes: one step
+            ConfigNode pre = SpineUndo.Before(this, key);
             List<CrossSection> all = AvailableSections();           // built-ins, the craft's, then shared A-Z
             int at = Math.Max(0, all.FindIndex(s => s.name == n.Section.name));
             AssignSection(n, all[(at + 1) % all.Count]);
             if (i == SelIndex) FollowSelected();
             RebuildAndPropagate();                                  // section type changes geometry
+            SpineUndo.After(this, key, pre);
             if (i == SelIndex) { LoadProxyFromNode(); MonoUtilities.RefreshPartContextWindow(part); }
         }
 
@@ -2076,8 +2136,13 @@ namespace CustomProceduralParts
         {
             SpineNode n = nodes[i];
             float step = PPart.diameterSmallStep * Mathf.Sign(scroll);
-            n.sizeV = Mathf.Clamp(n.sizeV + step, MinSizeFor(i), MaxSize);
+            float to = Mathf.Clamp(n.sizeV + step, MinSizeFor(i), MaxSize);
+            if (Mathf.Approximately(to, n.sizeV)) return;
+            string key = "wheel#" + i;   // a turn of the wheel: one step
+            ConfigNode pre = SpineUndo.Before(this, key);
+            n.sizeV = to;
             RebuildAndPropagate();
+            SpineUndo.After(this, key, pre);
             if (i == SelIndex) { LoadProxyFromNode(); MonoUtilities.RefreshPartContextWindow(part); }
         }
 
@@ -2097,6 +2162,7 @@ namespace CustomProceduralParts
             float newOffset = Mathf.Clamp(RawVertical(i, ray) + _grabDeltaV, -10f, 10f);
             if (Mathf.Approximately(newOffset, n.offsetV)) return;   // no change -> skip rebuild
             n.offsetV = newOffset;
+            _dragMoved = true;
             if (i == SelIndex) nodeOffsetV = newOffset;   // PAW value updates; refresh on drag end
             RebuildLive();   // full sync deferred to drag end
         }
@@ -2117,6 +2183,7 @@ namespace CustomProceduralParts
             float newOffset = Mathf.Clamp(RawHorizontal(i, ray) + _grabDeltaH, -10f, 10f);
             if (Mathf.Approximately(newOffset, n.offsetH)) return;   // no change -> skip rebuild
             n.offsetH = newOffset;
+            _dragMoved = true;
             if (i == SelIndex) nodeOffsetH = newOffset;   // PAW value updates; refresh on drag end
             RebuildLive();   // full sync deferred to drag end
         }

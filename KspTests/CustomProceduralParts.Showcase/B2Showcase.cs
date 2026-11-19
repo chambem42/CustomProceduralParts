@@ -243,10 +243,10 @@ namespace CustomProceduralParts.Showcase
                 yield return MoveCursor(() => gui, 26);
             }
             FrameRecorder.CursorPressed = true;
-            yield return Frames(6, null);
+            yield return Frames(3, null);
             act();
             FrameRecorder.CursorPressed = false;
-            yield return Frames(8, null);
+            yield return Frames(4, null);
         }
 
         internal static void ScrollIntoView(Part part, Component item)

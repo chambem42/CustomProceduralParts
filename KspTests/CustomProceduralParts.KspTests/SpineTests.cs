@@ -1408,5 +1408,69 @@ namespace CustomProceduralParts.KspTests
             }
             Assert.True(fails.Count == 0, "the barometer stays on the skin: " + string.Join("; ", fails));
         }
+
+        /// <summary>
+        /// Spine edits are editor undo steps (stock KSP records only part attach / detach / move): each undo goes back
+        /// one edit, redo forward again. Repeats of one control on one node are one step (PAW arrow taps, clicks on
+        /// through the shapes), and selecting a node is none. Undo replaces the parts, so the Spine is looked up again
+        /// after each; the test ends undone to where it started.
+        /// </summary>
+        [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineTest")]
+        public static IEnumerator Editor_SpineEditsUndo(TestContext ctx)
+        {
+            var restore = typeof(EditorLogic).GetMethod("RestoreState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(restore, "EditorLogic.RestoreState");
+            string State() => Spine().DumpAll();
+            void Pawed(string field, object to)
+            {
+                ProceduralShapeSpine sp = Spine();
+                BaseField f = sp.Fields[field];
+                object old = f.GetValue(sp);
+                f.SetValue(to, sp);
+                f.uiControlEditor.onFieldChanged(f, old);   // as the PAW calls it
+            }
+
+            ProceduralShapeSpine s = Spine();
+            s.SelectNode(1);
+            var states = new List<string> { State() };
+            float w = s.nodes[1].sizeH;
+            for (int k = 1; k <= 3; k++) Pawed("nodeWidth", w + 0.1f * k);   // three taps: one step
+            states.Add(State());
+            s.SelectNode(2);                                                    // no step
+            s.AddNodeInFrontEvent();
+            states.Add(State());
+            Spine().CycleProfile(1);
+            Spine().CycleProfile(1);                                            // on through the shapes: one step
+            states.Add(State());
+            Spine().SelectNode(1);
+            Pawed("nodeOffsetV", Spine().nodes[1].offsetV + 0.5f);
+            states.Add(State());
+            Pawed("length", Spine().length + 1f);
+            states.Add(State());
+            ctx.Record("steps", states.Count - 1);
+            yield return Wait.Frames(5);
+
+            var fails = new List<string>();
+            for (int i = states.Count - 2; i >= 0; i--)
+            {
+                restore.Invoke(EditorLogic.fetch, new object[] { -1 });
+                yield return Wait.Frames(5);
+                if (State() != states[i]) fails.Add($"undo to step {i}: {State()} (want {states[i]})");
+            }
+            for (int i = 1; i < states.Count; i++)
+            {
+                restore.Invoke(EditorLogic.fetch, new object[] { 1 });
+                yield return Wait.Frames(5);
+                if (State() != states[i]) fails.Add($"redo to step {i}: {State()} (want {states[i]})");
+            }
+            // back to the craft as loaded, for the other tests
+            for (int i = 0; i < 2 * states.Count && State() != states[0]; i++)
+            {
+                restore.Invoke(EditorLogic.fetch, new object[] { -1 });
+                yield return Wait.Frames(5);
+            }
+            Assert.True(fails.Count == 0, string.Join("\n", fails));
+            Assert.Equal(states[0], State(), "undone to the start");
+        }
     }
 }
