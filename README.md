@@ -101,9 +101,16 @@ different reference folder.
 1. Bump `<Version>` in `Source/CustomProceduralParts.csproj`, the `KSPAssembly` version in
    `Source/AssemblyAttributes.cs`, and `VERSION` in
    `GameData/CustomProceduralParts/CustomProceduralParts.version`.
-2. Build Release, then `powershell -File tools/package.ps1` (checks the three versions agree and
-   writes `dist/CustomProceduralParts-<version>.zip`).
-3. Push, then `gh release create v<version> dist/CustomProceduralParts-<version>.zip`.
+2. Push, then tag it with the release notes as the tag's message and push the tag:
+   `git tag -a v<version> -m "<notes>"`, `git push origin v<version>`. The Release workflow
+   (`.github/workflows/release.yml`) runs the in-game tests, builds Release, packages it with
+   `tools/package.ps1` (which checks the three versions agree) and creates the GitHub release with
+   `CustomProceduralParts-<version>.zip`. Run it by hand from the Actions tab to get the zip as an
+   artifact without releasing.
+
+By hand instead: build Release, `powershell -File tools/package.ps1` (writes
+`dist/CustomProceduralParts-<version>.zip`), then
+`gh release create v<version> dist/CustomProceduralParts-<version>.zip`.
 
 CKAN picks up new releases on its own. Its metadata is `CustomProceduralParts.netkan` in this repo
 (the NetKAN repo points at it), so dependency or tag changes go there.

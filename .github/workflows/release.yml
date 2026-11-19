@@ -1,0 +1,102 @@
+name: Release
+
+# A v<version> tag (git tag -a v0.2.0 -m "<notes>"; git push origin v0.2.0) releases that commit: the in-game tests as
+# tests.yml runs them, then a Release build against the game's assemblies and ProceduralParts from CKAN
+# (.github/ci/refs.sh), tools/package.ps1's zip, and a GitHub release of it titled <version>, the tag's message its notes
+# (a lightweight tag gives its commit's). CKAN installs that zip. The tag must be the csproj's <Version>, which
+# package.ps1 checks against the DLL and the .version file. Run by hand (workflow_dispatch) it does the same up to the
+# zip, kept as the run's artifact, and releases nothing.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  # a tag that isn't the version fails here, before the tests
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - id: check
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Source/CustomProceduralParts.csproj | head -1)
+          [ -n "$v" ] || { echo "::error::no <Version> in Source/CustomProceduralParts.csproj"; exit 1; }
+          if [ -n "$TAG" ] && [ "$TAG" != "v$v" ]; then
+            echo "::error::tag $TAG, but the csproj's version is $v (tag v$v)"; exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  tests:
+    needs: version
+    uses: chambem42/KspTest/.github/workflows/ingame.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    secrets: inherit
+    with:
+      test-project: KspTests/CustomProceduralParts.KspTests.Run
+      title: CPP in-game tests
+      legs: '["windows", "linux"]'
+      mods: ProceduralParts
+      prepare: bash .github/ci/refs.sh
+
+  release:
+    needs: [version, tests]
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    # the game's secrets, for the assemblies the mod builds against; not a deployment
+    environment:
+      name: ksp-game
+      deployment: false
+    defaults:
+      run:
+        shell: bash
+    env:
+      ZIP: dist/CustomProceduralParts-${{ needs.version.outputs.version }}.zip
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: chambem42/KspTest/.github/actions/setup@main
+        with:
+          game-repo: ${{ vars.KSP_GAME_REPO }}
+          game-token: ${{ secrets.KSP_GAME_TOKEN }}
+          game-key: ${{ secrets.KSP_GAME_KEY }}
+          mods: ProceduralParts
+      - name: Build
+        run: |
+          bash .github/ci/refs.sh
+          dotnet build Source/CustomProceduralParts.csproj -c Release
+      - name: Package
+        shell: powershell
+        run: powershell -NoProfile -File tools/package.ps1
+      - uses: actions/upload-artifact@v6
+        with:
+          name: CustomProceduralParts-${{ needs.version.outputs.version }}
+          path: ${{ env.ZIP }}
+          if-no-files-found: error
+      - name: GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VER: ${{ needs.version.outputs.version }}
+        run: |
+          # checkout can leave an annotated tag as a lightweight one: the tag itself, for its message
+          git fetch --no-tags --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          gh release create "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --title "$VER" --notes-from-tag --verify-tag
