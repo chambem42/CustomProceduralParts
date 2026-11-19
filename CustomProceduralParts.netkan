@@ -17,3 +17,6 @@ depends:
   - name: ProceduralParts
     min_version: v2.8.0.0
   - name: ModuleManager
+supports:
+  # RP-1 tools Spine parts itself (ModuleToolingPTank reads the Spine's bounding diameters)
+  - name: RP-1

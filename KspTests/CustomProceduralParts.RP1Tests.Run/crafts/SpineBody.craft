@@ -1,0 +1,81 @@
+ship = SpineBody
+version = 1.12.5
+description = One Procedural Parts structural part as a Spine (RP-1 tools it as Stringers) for the RP-1 tooling checks: 2.4 m round at the bottom, 3.0 m round a little below the middle, 1.6 m round at the top, 6 m long.
+type = VAB
+size = 3,6,3
+steamPublishedFileId = 0
+persistentId = 1406281900
+rot = 0,0,0,1
+missionFlag = Squad/Flags/default
+vesselType = Debris
+OverrideDefault = False,False,False,False
+OverrideActionControl = 0,0,0,0
+OverrideAxisControl = 0,0,0,0
+OverrideGroupNames = ,,,
+PART
+{
+	part = proceduralStructural_4288700001
+	partName = Part
+	persistentId = 3711300001
+	pos = 0,12,0
+	attPos = 0,0,0
+	attPos0 = 0,12,0
+	rot = 0,0,0,1
+	attRot = 0,0,0,1
+	attRot0 = 0,0,0,1
+	mir = 1,1,1
+	symMethod = Radial
+	autostrutMode = Off
+	rigidAttachment = False
+	istg = 0
+	resPri = 0
+	dstg = 0
+	sidx = -1
+	sqor = -1
+	sepI = 0
+	attm = 0
+	sameVesselCollision = False
+	modCost = 0
+	modMass = 0
+	modSize = 0,0,0
+	MODULE
+	{
+		name = ProceduralPart
+		isEnabled = True
+		shapeName = Spine
+		stagingEnabled = True
+	}
+	MODULE
+	{
+		name = ProceduralShapeSpine
+		isEnabled = True
+		length = 6
+		hScale = 1
+		vScale = 1
+		stagingEnabled = True
+		SPINE_NODE
+		{
+			position = 0
+			sizeH = 2.4
+			sizeV = 2.4
+			section = Ellipse
+			slopeAbove = Linear
+		}
+		SPINE_NODE
+		{
+			position = 0.4
+			sizeH = 3
+			sizeV = 3
+			section = Ellipse
+			slopeAbove = Convex
+		}
+		SPINE_NODE
+		{
+			position = 1
+			sizeH = 1.6
+			sizeV = 1.6
+			section = Ellipse
+			slopeAbove = Linear
+		}
+	}
+}

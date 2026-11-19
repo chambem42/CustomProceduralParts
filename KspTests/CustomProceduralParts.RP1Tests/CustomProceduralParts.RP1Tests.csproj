@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        In-game tests of RP-1's tooling of Spine parts. Apart from the main tests because they need a KSP instance with
+        RP-1 and its whole dependency stack. Run with CustomProceduralParts.RP1Tests.Run, which builds the RP-1 they run
+        with. Built against any RP0.dll (in .refs): what's new in RP-1's tooling is reached by name.
+    -->
+    <PropertyGroup>
+        <TargetFramework>net48</TargetFramework>
+        <LangVersion>9</LangVersion>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <RootNamespace>CustomProceduralParts.RP1Tests</RootNamespace>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>false</IsTestProject>
+        <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+        <CppRefs>$(MSBuildThisFileDirectory)../../.refs/</CppRefs>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\Source\CustomProceduralParts.csproj" Private="false" />
+        <Reference Include="ProceduralParts" HintPath="$(CppRefs)ProceduralParts.dll" Private="false" />
+        <Reference Include="RP0" HintPath="$(CppRefs)RP0.dll" Private="false" />
+        <Reference Include="RealFuels" HintPath="$(CppRefs)RealFuels.dll" Private="false" />
+    </ItemGroup>
+
+    <Import Project="$(KspTestRoot)/build/KspTest.FromSource.targets" />
+
+</Project>

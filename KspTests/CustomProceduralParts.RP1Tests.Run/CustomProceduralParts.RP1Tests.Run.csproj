@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        Runs the RP-1 tooling tests (CustomProceduralParts.RP1Tests) with dotnet test, in a KSP instance with RP-1 from
+        CKAN and its dependencies (RealismOverhaul, RSS and the rest: GBs, built once from the CKAN cache and reused),
+        ProceduralParts from CKAN as players get it, and this mod from source. RSS needs one texture pack.
+        RP-1 itself is built from source over CKAN's copy (KspModSource): until a release tools Spines, the branch that
+        does. Another with -p:Rp1Repo=<folder or GitHub owner/name> and -p:Rp1Ref=<branch> or -p:Rp1Pr=<number> (a
+        folder with neither: its checkout as it is; a relative folder is from this project's); CKAN's alone with
+        -p:Rp1Repo=ckan.
+    -->
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <RollForward>Major</RollForward>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Rp1Repo)' == ''">
+        <Rp1Repo>chambem42/RP-1</Rp1Repo>
+        <Rp1Ref>feat/proc-spine-tooling</Rp1Ref>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\CustomProceduralParts.RP1Tests\CustomProceduralParts.RP1Tests.csproj"
+                          ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" OutputItemType="KspTestPlugin" />
+        <!-- the RP-1 tooling showcase (Explicit: a plain run skips it) -->
+        <ProjectReference Include="..\CustomProceduralParts.Showcase\CustomProceduralParts.Showcase.csproj"
+                          ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" OutputItemType="KspTestPlugin" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <KspMod Include="RP-1" />
+        <KspMod Include="RSSTextures4096" />
+        <!-- RealAntennas needs it (CKAN doesn't pull it in); without RealAntennas RP-1 retries its patches every frame -->
+        <KspMod Include="KSPBurst" />
+        <KspMod Include="ProceduralParts" />
+        <KspMod Include="..\..\GameData\CustomProceduralParts" />
+        <KspModSource Include="RP-1" Repo="$(Rp1Repo)" Ref="$(Rp1Ref)" Pr="$(Rp1Pr)" Condition="'$(Rp1Repo)' != 'ckan'" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <KspTestCraft Include="..\CustomProceduralParts.KspTests.Run\crafts\SpineTest.craft" />
+        <KspTestCraft Include="crafts\SpineBody.craft" />
+        <KspTestCraft Include="crafts\SpineTank.craft" />
+        <None Include="ksptest.json" Condition="Exists('ksptest.json')" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <Import Project="$(KspTestRoot)/build/KspTest.FromSource.targets" />
+
+</Project>

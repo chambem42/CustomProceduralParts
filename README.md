@@ -65,6 +65,16 @@ in-scene gizmo. Added to every ProceduralParts part (pick it from the Shape sele
 
 Known limitations: open shell ends still have solid stack nodes and a closed FAR voxelization.
 
+## RP-1
+
+RP-1 tools a Spine tank, structural part, nose cone or crew tube as two bounding cylinders, its
+narrowest and its widest section, both at the part's length (one tooling when the section doesn't
+change). The part menu lists both cylinders and whether each is tooled, updated as you reshape the
+part. Procedural avionics are tooled with the widest. That's RP-1's own code (its
+`ModuleToolingPTank`, from the Spine's `MinBoundingDiameter`, `MaxDiameter` and `Length`), so this mod
+has nothing RP-1 specific. An RP-1 without it tools a Spine by the size of the part's hidden Cylinder
+shape.
+
 ## Tests
 
 `KspTests/` holds in-game tests for the KspTest harness: `dotnet test
@@ -73,6 +83,13 @@ ProceduralParts from CKAN, the ProceduralParts build this mod compiles against o
 (`PPGameData`, default a sibling `ProceduralParts` checkout) and this mod. Set `KspDir` (or
 `KSPDIR`) to the KSP install to build against, and `KspTestRoot` (or `KSPTEST_ROOT`) if KspTest isn't
 checked out beside this repo; `KspTests/Directory.Build.props.user` holds local values.
+
+RP-1's tooling of Spines has its own: `dotnet test KspTests/CustomProceduralParts.RP1Tests.Run`, in
+an instance with RP-1 and its dependencies from CKAN (several GB, made once from the CKAN download
+cache). KspTest builds RP-1 itself from source over CKAN's copy: until a release tools Spines, the
+branch that does. `-p:Rp1Repo=<folder or GitHub owner/name>` with `-p:Rp1Ref=<branch>` or
+`-p:Rp1Pr=<number>` picks another (a folder alone: its checkout as it is), `-p:Rp1Repo=ckan` CKAN's
+release. Building it needs Visual Studio's MSBuild.
 
 Showcase videos are recorded the same way but kept apart (each wants an instance with extra mods):
 `dotnet test KspTests/CustomProceduralParts.Showcase.Run --filter FullyQualifiedName~Showcase_B2Fuselage`
@@ -87,7 +104,8 @@ this project compiles against a publicized ProceduralParts (Krafs.Publicizer).
 
 Stage these into `.refs/` (flat): `Assembly-CSharp`, `UnityEngine`, `UnityEngine.CoreModule`,
 `UnityEngine.IMGUIModule`, `UnityEngine.InputLegacyModule`, `UnityEngine.PhysicsModule`,
-`UnityEngine.TextRenderingModule` (from `KSP_x64_Data/Managed`) and `ProceduralParts.dll`. Then:
+`UnityEngine.TextRenderingModule` (from `KSP_x64_Data/Managed`), `ProceduralParts.dll`, and for
+the RP-1 tests `RP0.dll` and `RealFuels.dll`. Then:
 
 ```
 MSBuild Source/CustomProceduralParts.csproj -restore -p:Configuration=Release
