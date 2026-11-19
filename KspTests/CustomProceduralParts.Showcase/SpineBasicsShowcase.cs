@@ -93,11 +93,10 @@ namespace CustomProceduralParts.Showcase
                 yield return Frames(30, null);
                 yield return PawChoose(part, "nodeProfileOpt", "Mk3", () => SetField(s, "nodeProfileOpt", "Mk3"));
                 yield return Frames(30, null);
-                yield return PawChoose(part, "nodeProfileOpt", "Ellipse", () => SetField(s, "nodeProfileOpt", "Ellipse"));
-                yield return Frames(15, null);
 
+                // each step goes on from where the last left the part: nothing is clicked back
                 rec.Caption("Slope", "How the body curves from this node to the next");
-                foreach (string slope in new[] { "Concave", "Convex", "Waisted", "Linear" })
+                foreach (string slope in new[] { "Concave", "Convex", "Waisted" })
                 {
                     string sl = slope;
                     yield return PawChoose(part, "nodeSlopeOpt", sl, () => SetField(s, "nodeSlopeOpt", sl));
@@ -105,13 +104,10 @@ namespace CustomProceduralParts.Showcase
                 }
 
                 rec.Caption("Offsets and tilt", "Move a node up, down or sideways, or tilt it");
-                yield return PawFloat(part, s, "nodeOffsetV", 0f, 0.8f);
-                yield return PawFloat(part, s, "nodeOffsetH", 0f, -0.6f);
-                yield return PawFloat(part, s, "nodeTiltV", 0f, 25f);
+                yield return PawFloat(part, s, "nodeOffsetV", s.nodes[s.SelIndex].offsetV, 0.8f);
+                yield return PawFloat(part, s, "nodeOffsetH", s.nodes[s.SelIndex].offsetH, -0.6f);
+                yield return PawFloat(part, s, "nodeTiltV", s.nodes[s.SelIndex].tiltV, 25f);
                 yield return Frames(15, null);
-                yield return PawFloat(part, s, "nodeTiltV", 25f, 0f);
-                yield return PawFloat(part, s, "nodeOffsetH", -0.6f, 0f);
-                yield return PawFloat(part, s, "nodeOffsetV", 0.8f, 0f);
 
                 rec.Caption("Add and remove nodes", "A new node copies the selected one, halfway to the next");
                 yield return ClickPawButton(part, "Add node in front", () => s.AddNodeInFrontEvent());
@@ -139,34 +135,35 @@ namespace CustomProceduralParts.Showcase
                 yield return ClickControl(SpineOptionsWindow.Title, c => c.Label == "Close", () => UnityEngine.Object.Destroy(opts.gameObject));
                 yield return CamMove(home, 145, 20, 12.5f, -0.02f, 30);
 
-                int mid = 1;
+                // an inner node other than the one the PAW part left selected, so the click selects something new
+                int mid = Enumerable.Range(1, s.nodes.Count - 2).OrderBy(i => i == s.SelIndex ? 1 : 0).ThenBy(i => Mathf.Abs(i - 1)).First();
                 rec.Caption("Click a node's circle to select it", "The end nodes are arrows; they stay at the ends");
-                yield return ClickWorld(() => NodeHandle(s, 2), () => s.SelectNode(2));
-                yield return Frames(15, null);
                 yield return ClickWorld(() => NodeHandle(s, mid), () => s.SelectNode(mid));
                 yield return Frames(15, null);
                 rec.Caption("Drag the circle up and down", "Left-drag moves the node up or down");
                 float v0 = s.nodes[mid].offsetV;
-                yield return GizmoDrag(s, () => NodeHandle(s, mid), t => s.nodeOffsetV = s.nodes[mid].offsetV = v0 + 0.9f * Mathf.Sin(Mathf.PI * t), 70);
+                yield return GizmoDrag(s, () => NodeHandle(s, mid), t => s.nodeOffsetV = s.nodes[mid].offsetV = v0 + 0.6f * t, 60);
                 rec.Caption("Right-drag: sideways", "Right-drag moves the node left or right");
                 float h0 = s.nodes[mid].offsetH;
-                yield return GizmoDrag(s, () => NodeHandle(s, mid), t => s.nodeOffsetH = s.nodes[mid].offsetH = h0 + 0.8f * Mathf.Sin(Mathf.PI * t), 70);
+                yield return GizmoDrag(s, () => NodeHandle(s, mid), t => s.nodeOffsetH = s.nodes[mid].offsetH = h0 + 0.6f * t, 60);
                 rec.Caption("Mouse wheel: taller or shorter", "Scroll over a node's circle");
                 yield return Wheel(s, mid, +1, 6);
-                yield return Wheel(s, mid, -1, 6);
                 rec.Caption("Diamonds: width and position", "Drag out or in to change the width, or along the body to move the node");
                 float w0 = s.nodes[mid].sizeH, p0 = s.nodes[mid].position;
                 int side = NearSide(s, mid);
+                // out for width, then along the body for position, ending where it stops
+                float pTo = Mathf.Min(p0 + 0.12f, s.nodes[mid + 1].position - 0.05f);
                 yield return GizmoDrag(s, () => Tip(s, mid, side), t =>
                 {
-                    s.nodeWidth = s.nodes[mid].sizeH = w0 + 1.2f * Mathf.Sin(Mathf.PI * Mathf.Min(1f, 2f * t));
-                    s.nodePos = s.nodes[mid].position = p0 + 0.15f * Mathf.Sin(Mathf.PI * Mathf.Max(0f, 2f * t - 1f));
+                    s.nodeWidth = s.nodes[mid].sizeH = w0 + 1.0f * B2Showcase.Smooth(Mathf.Min(1f, 2f * t));
+                    s.nodePos = s.nodes[mid].position = Mathf.Lerp(p0, pTo, B2Showcase.Smooth(Mathf.Max(0f, 2f * t - 1f)));
                 }, 100);
                 rec.Caption("Shape icon: middle-click to change", "The icon above each node shows its cross-section");
-                for (int k = 0; k < 4; k++)
+                for (int k = 0; k < 3; k++)
                 {
-                    yield return ClickWorld(() => Glyph(s, mid), () => s.CycleProfile(mid));
-                    yield return Frames(18, null);
+                    // after the first, clicks on the same icon: twice as quick
+                    yield return ClickWorld(() => Glyph(s, mid), () => s.CycleProfile(mid), again: k > 0);
+                    yield return Frames(k > 0 ? 9 : 18, null);
                 }
                 FrameRecorder.CursorVisible = false;
                 SpineSettings.Set(SpineHandleVis.Active, SpineSettings.ClickBeforeDrag, true);   // the hull keeps the outlines
@@ -199,7 +196,7 @@ namespace CustomProceduralParts.Showcase
                 yield return PawChoose(part, "nodeProfileOpt", "Rectangle", () => SetField(s, "nodeProfileOpt", "Rectangle"));
                 yield return Frames(20, null);
                 float va = s.nodes[mid].offsetV;
-                yield return GizmoDrag(s, () => NodeHandle(s, mid), t => s.nodeOffsetV = s.nodes[mid].offsetV = va + 0.8f * Mathf.Sin(Mathf.PI * t), 80);
+                yield return GizmoDrag(s, () => NodeHandle(s, mid), t => s.nodeOffsetV = s.nodes[mid].offsetV = va - 0.6f * t, 60);
                 yield return Frames(20, null);
                 FrameRecorder.CursorVisible = false;
 
@@ -356,10 +353,12 @@ namespace CustomProceduralParts.Showcase
             return v.normalized;
         }
 
-        // Where a ray from outside, in direction dir from the axis at node i (+ dy m along it), meets the body's collider.
+        // Where a ray from outside, in direction dir toward node i's centre (its offsets included; + dy m along the
+        // spine), meets the body's collider.
         private static RaycastHit? SkinAt(Part body, ProceduralShapeSpine s, int i, float dy, Vector3 dir)
         {
-            Vector3 axisPt = body.transform.TransformPoint(new Vector3(0f, (s.nodes[i].position - 0.5f) * s.length + dy, 0f));
+            SpineNode n = s.nodes[i];
+            Vector3 axisPt = body.transform.TransformPoint(new Vector3(s.EoffH(n), s.NodeY(n) + dy, s.Eoff(n)));
             return BodyHit(body, new Ray(axisPt + 20f * dir, -dir));
         }
 
@@ -408,7 +407,7 @@ namespace CustomProceduralParts.Showcase
             foreach (RaycastHit h in path) stops.Add(ScreenOf(h.point));
             for (int leg = 1; leg < stops.Count; leg++)
             {
-                int n = leg == 1 ? 40 : 50;
+                int n = Quick(leg == 1 ? 40 : 50);
                 for (int k = 1; k <= n; k++)
                 {
                     Vector2 c = Vector2.Lerp(stops[leg - 1], stops[leg], B2Showcase.Smooth((float)k / n));
@@ -448,7 +447,7 @@ namespace CustomProceduralParts.Showcase
 
         // A PAW tap does nothing while an input lock holds the part menus' controls (a window's lock, taken while the
         // real mouse happens to be over it): those locks off before the take's taps, named in the log.
-        private static void Unlock(string field)
+        internal static void Unlock(string field)
         {
             if (InputLockManager.IsUnlocked(ControlTypes.TWEAKABLES_ANYCONTROL)) return;
             var held = InputLockManager.lockStack.Where(kv => (kv.Value & (ulong)ControlTypes.TWEAKABLES_ANYCONTROL) != 0).Select(kv => kv.Key).ToList();
@@ -490,13 +489,13 @@ namespace CustomProceduralParts.Showcase
         private static Vector3 _ct;
         private static float _cy, _cp, _cd, _cs;
 
-        private static void Cam(Vector3 target, float yaw, float pitch, float dist, float shift)
+        internal static void Cam(Vector3 target, float yaw, float pitch, float dist, float shift)
         {
             _ct = target; _cy = yaw; _cp = pitch; _cd = dist; _cs = shift;
             Orbit(target, yaw, pitch, dist, 30, shift);
         }
 
-        private static IEnumerator CamMove(Vector3 target, float yaw, float pitch, float dist, float shift, int n)
+        internal static IEnumerator CamMove(Vector3 target, float yaw, float pitch, float dist, float shift, int n)
         {
             Vector3 t0 = _ct;
             float y0 = _cy, p0 = _cp, d0 = _cd, s0 = _cs;
@@ -510,7 +509,7 @@ namespace CustomProceduralParts.Showcase
         // ---- the PAW ---------------------------------------------------------------------------------------------
 
         // A field as its PAW control sets it: the value, then the control's change handler.
-        private static void SetField(PartModule m, string name, object value)
+        internal static void SetField(PartModule m, string name, object value)
         {
             BaseField f = m.Fields[name];
             object old = f.GetValue(m);
@@ -519,7 +518,7 @@ namespace CustomProceduralParts.Showcase
         }
 
         // The field's PAW item on screen (GUI coordinates, y down), scrolled into view; null if it isn't shown.
-        private static Rect? PawItemRect(Part part, string field)
+        internal static Rect? PawItemRect(Part part, string field)
         {
             UIPartActionFieldItem item = Paw.FindFieldItem<UIPartActionFieldItem>(part, field);
             if (item == null) return null;
@@ -534,7 +533,7 @@ namespace CustomProceduralParts.Showcase
 
         // A choice field set to `option` through its own arrow buttons, tapped (the cursor on the arrow) until the PAW
         // shows it. `act` sets it directly if the PAW can't.
-        private static IEnumerator PawChoose(Part part, string field, string option, Action act)
+        internal static IEnumerator PawChoose(Part part, string field, string option, Action act)
         {
             yield return Frames(3, null);
             PawItemRect(part, field);   // scrolled into view
@@ -548,14 +547,15 @@ namespace CustomProceduralParts.Showcase
                 if (want < 0 || want == at) break;
                 bool up = want > at;
                 UIButtonToggle b = up ? it.inc : it.dec;
-                if (b != last) yield return MoveCursor(() => Center((RectTransform)b.transform), last == null ? 18 : 8);
+                bool again = b == last;   // the same arrow again: a repeated click, twice as quick
+                if (!again) yield return MoveCursor(() => Center((RectTransform)b.transform), last == null ? 18 : 8);
                 last = b;
                 FrameRecorder.CursorPressed = true;
-                yield return Frames(3, null);
+                yield return Frames(again ? 2 : 3, null);
                 Unlock(field);
                 if (up) it.OnTap_inc(); else it.OnTap_dec();
                 FrameRecorder.CursorPressed = false;
-                yield return Frames(taps == 0 ? 6 : 5, null);
+                yield return Frames(again ? 2 : 6, null);
             }
             if (!(Item() is UIPartActionChooseOption done) || Value(done) != option)
             {
@@ -569,7 +569,7 @@ namespace CustomProceduralParts.Showcase
         // arrow buttons tapped, large steps then small, while a tap gets closer to `to` (so `to` wants to be a whole
         // number of steps away). A range slider (the Node one, whole steps): one click at `to`'s place on it. The
         // cursor goes to the button or the slider. `cam` gets the progress from `from` to `to`, eased.
-        private static IEnumerator PawFloat(Part part, PartModule host, string field, float from, float to, Action<float> cam = null)
+        internal static IEnumerator PawFloat(Part part, PartModule host, string field, float from, float to, Action<float> cam = null)
         {
             yield return Frames(3, null);
             PawItemRect(part, field);   // scrolled into view
@@ -618,22 +618,23 @@ namespace CustomProceduralParts.Showcase
                 bool up = rem > 0f;
                 UIPartActionFloatEdit e = Edit();
                 UIButtonToggle b = large ? (up ? e.incLarge : e.decLarge) : (up ? e.incSmall : e.decSmall);
-                if (b != last) yield return MoveCursor(() => Center((RectTransform)b.transform), last == null ? 18 : 8);
+                bool again = b == last;   // the same button again: a repeated click, twice as quick
+                if (!again) yield return MoveCursor(() => Center((RectTransform)b.transform), last == null ? 18 : 8);
                 last = b;
                 FrameRecorder.CursorPressed = true;
-                yield return Frames(3, Ease);
+                yield return Frames(again ? 2 : 3, Ease);
                 Unlock(field);
                 if (large) { if (up) e.OnTap_incLarge(); else e.OnTap_decLarge(); }
                 else { if (up) e.OnTap_incSmall(); else e.OnTap_decSmall(); }
                 FrameRecorder.CursorPressed = false;
-                yield return Frames(6, Ease);
+                yield return Frames(again ? 3 : 6, Ease);
             }
             Debug.Log($"[SpineBasicsShowcase] {field}: {from} -> {Cur()} (asked {to})");
             yield return Frames(8, Ease);
         }
 
         // A UI element's centre in GUI coordinates (y down).
-        private static Vector2 Center(RectTransform rt)
+        internal static Vector2 Center(RectTransform rt)
         {
             var c = new Vector3[4];
             rt.GetWorldCorners(c);
@@ -665,24 +666,27 @@ namespace CustomProceduralParts.Showcase
         }
 
         // The cursor onto a point in the scene, pressed, `act`, released.
-        private static IEnumerator ClickWorld(Func<Vector3> at, Action act)
+        // `again`: a repeated click on the same spot, twice as quick (the cursor is already there).
+        internal static IEnumerator ClickWorld(Func<Vector3> at, Action act, bool again = false)
         {
-            yield return MoveCursor(() => ScreenOf(at()), 18);
+            if (!again) yield return MoveCursor(() => ScreenOf(at()), 18);
+            else FrameRecorder.CursorPos = ScreenOf(at());
             FrameRecorder.CursorPressed = true;
-            yield return Frames(4, null);
+            yield return Frames(again ? 2 : 4, null);
             act();
-            yield return Frames(3, null);
+            yield return Frames(again ? 2 : 3, null);
             FrameRecorder.CursorPressed = false;
-            yield return Frames(6, null);
+            yield return Frames(again ? 3 : 6, null);
         }
 
         // Press on a handle, `apply(t)` for t 0..1 over n frames (what dragging it does) with the cursor on the
         // handle, release: one full rebuild, as the gizmo's own drag ends.
-        private static IEnumerator GizmoDrag(ProceduralShapeSpine s, Func<Vector3> grab, Action<float> apply, int n)
+        internal static IEnumerator GizmoDrag(ProceduralShapeSpine s, Func<Vector3> grab, Action<float> apply, int n)
         {
             yield return MoveCursor(() => ScreenOf(grab()), 18);
             FrameRecorder.CursorPressed = true;
             yield return Frames(5, null);
+            n = Quick(n);
             for (int k = 1; k <= n; k++)
             {
                 apply(B2Showcase.Smooth((float)k / n));
@@ -719,7 +723,7 @@ namespace CustomProceduralParts.Showcase
         // mirror toggles (its row's label is as wide as theirs) to its value label (110 px) before the "0" button.
         // The cursor onto something, resting there till its tooltip shows (the Spine windows' tips follow the drawn
         // cursor while it's here), then the tips off again.
-        private static IEnumerator Hover(Func<Vector2> at, int n)
+        internal static IEnumerator Hover(Func<Vector2> at, int n)
         {
             yield return MoveCursor(at, 18);
             for (int i = 0; i < n; i++)
@@ -748,6 +752,7 @@ namespace CustomProceduralParts.Showcase
             yield return MoveCursor(() => at(from), 18);
             FrameRecorder.CursorPressed = true;
             yield return Frames(3, null);
+            n = Quick(n);
             for (int i = 1; i <= n; i++)
             {
                 float v = Mathf.Lerp(from, to, B2Showcase.Smooth((float)i / n));

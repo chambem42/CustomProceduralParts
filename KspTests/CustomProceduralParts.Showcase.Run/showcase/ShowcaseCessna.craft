@@ -18,9 +18,9 @@ PART
 	part = proceduralTankLiquid_4000000001
 	partName = Part
 	persistentId = 2610069993
-	pos = 0,6,-0.275
+	pos = 0,6,-0.215
 	attPos = 0,0,0
-	attPos0 = 0,6,-0.275
+	attPos0 = 0,6,-0.215
 	rot = 0.707107,0,0,0.707107
 	attRot = 0,0,0,1
 	attRot0 = 0.707107,0,0,0.707107
@@ -434,7 +434,7 @@ PART
 	{
 		name = ProceduralShapeSpine
 		isEnabled = True
-		length = 6.76212
+		length = 6.88212
 		hScale = 1
 		vScale = 1
 		airfoil = False
@@ -456,6 +456,21 @@ PART
 		SPINE_NODE
 		{
 			position = 1
+			sizeH = 0
+			sizeV = 0
+			offsetV = 0.0994446
+			offsetH = 0
+			tiltV = 0
+			tiltH = 0
+			filletTop = 0
+			filletBottom = 0
+			stretch = 0
+			profile = Ellipse
+			slopeAbove = Linear
+		}
+		SPINE_NODE
+		{
+			position = 0.982564
 			sizeH = 0.876483
 			sizeV = 0.698583
 			offsetV = 0.0994446
@@ -470,7 +485,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.997439
+			position = 0.980047
 			sizeH = 0.88
 			sizeV = 0.724909
 			offsetV = 0.106372
@@ -485,7 +500,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.914707
+			position = 0.898758
 			sizeH = 0.98
 			sizeV = 0.945533
 			offsetV = 0.0827341
@@ -500,7 +515,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.872759
+			position = 0.857541
 			sizeH = 1.03
 			sizeV = 1.01645
 			offsetV = 0.0393972
@@ -515,7 +530,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.831976
+			position = 0.817469
 			sizeH = 1.08
 			sizeV = 1.28207
 			offsetV = -0.098493
@@ -530,7 +545,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.695644
+			position = 0.683514
 			sizeH = 1.09395
 			sizeV = 1.16446
 			offsetV = -0.106456
@@ -545,7 +560,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.581451
+			position = 0.571312
 			sizeH = 1.0605
 			sizeV = 1.09524
 			offsetV = -0.196986
@@ -560,7 +575,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.548824
+			position = 0.539255
 			sizeH = 0.97
 			sizeV = 1.05584
 			offsetV = -0.208805
@@ -575,7 +590,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.306456
+			position = 0.301113
 			sizeH = 0.58
 			sizeV = 0.70915
 			offsetV = -0.303358
@@ -590,7 +605,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.080401
+			position = 0.0789991
 			sizeH = 0.226634
 			sizeV = 0.158307
 			offsetV = -0.268218
@@ -605,7 +620,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.0675835
+			position = 0.066405
 			sizeH = 0.199965
 			sizeV = 0.118192
 			offsetV = -0.254795
@@ -620,7 +635,7 @@ PART
 		}
 		SPINE_NODE
 		{
-			position = 0.0664182
+			position = 0.0652601
 			sizeH = 0.197541
 			sizeV = 0.05
 			offsetV = -0.236383

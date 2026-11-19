@@ -85,7 +85,12 @@ namespace CustomProceduralParts.Showcase
                 .Select(p => (p, size: Bounds(new[] { p }).size.magnitude)).OrderByDescending(x => x.size).ToList();
             float biggest = spines.Count > 0 ? spines[0].size : 0f;
             Log("Spine part sizes: " + string.Join(", ", spines.Select(x => $"{x.p.partInfo.name} {x.size:F1}")));
-            return spines.Where(x => x.size >= 0.6f * biggest).Select(x => x.p).ToList();
+            // one of a pair (the floats): a part the same kind and size as one already shown is left out
+            var shown = new List<(Part p, float size)>();
+            foreach (var x in spines.Where(x => x.size >= 0.6f * biggest))
+                if (!shown.Any(y => y.p.partInfo == x.p.partInfo && Mathf.Abs(y.size - x.size) <= 0.01f * x.size))
+                    shown.Add(x);
+            return shown.Select(x => x.p).ToList();
         }
 
         // The camera on cam(0..1) for lead frames, then each Spine part's PAW open in turn for `each` frames (the PAW
