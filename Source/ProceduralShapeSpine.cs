@@ -61,7 +61,6 @@ namespace CustomProceduralParts
         private new const string ModTag = "[ProceduralShapeSpine]";
         internal const int MinSides = 24;          // points per ring by default, and the fewest (icons use it too)
         internal const int MaxSectionVerts = 96;   // a custom section's vertex cap (a part with fewer points per section simplifies it)
-        private const int ColliderSides = 24;  // collider points per ring, at most
 
         public override void InitializeAttachmentNodes() => InitializeAttachmentNodes(length, EndDiameter(0));
 
@@ -102,6 +101,13 @@ namespace CustomProceduralParts
         public int sectionPoints = MinSides;
         internal static readonly int[] PointChoices = { 24, 32, 48, 64, 96 };
         internal int Sides => Mathf.Clamp(sectionPoints, MinSides, PointChoices[PointChoices.Length - 1]);
+
+        // Collider points per ring, at most (no more than the ring's own points): its level of detail for physics,
+        // surface attachment and whatever reads its triangles (FAR's aero and water forces). Saved with the part;
+        // no control for it (a test sets it to see how a reader's results go with the detail).
+        [KSPField(isPersistant = true)]
+        public int colliderPoints = 24;
+        private int ColliderSides => Mathf.Clamp(colliderPoints, 4, MaxSectionVerts);
 
         // The display and handling options (handles shown, click before drag, outlines) are SpineSettings,
         // the same for every Spine; this part's own is sectionPoints.
@@ -2852,7 +2858,7 @@ namespace CustomProceduralParts
         // section (no corners: point 0 anchors it) thins to evenly spaced points, mirror-symmetric about point 0
         // when the section is.
         // Null when the rings don't share a point count (then each ring gives its own hull).
-        private static List<int> SharedColliderPoints(List<Ring> rings)
+        private List<int> SharedColliderPoints(List<Ring> rings)
         {
             if (rings.Count == 0 || rings[0].outline == null) return null;
             int n = rings[0].outline.Length;
@@ -2961,7 +2967,7 @@ namespace CustomProceduralParts
 
         // More corners than ColliderSides: drop the corner whose triangle with its neighbours costs the least area
         // summed over the rings, till ColliderSides are left
-        private static List<int> ThinByArea(List<Ring> rings, List<int> idx)
+        private List<int> ThinByArea(List<Ring> rings, List<int> idx)
         {
             idx = new List<int>(idx);
             float Cost(int k)
@@ -2992,7 +2998,7 @@ namespace CustomProceduralParts
         // One ring's points for the collider when the rings don't share a point count: its outline's hull,
         // thinned to ColliderSides by dropping the hull points that cost the least area -- corners and tips of a
         // custom section survive, wherever they fall in the outline.
-        private static List<int> ColliderPoints(Vector2[] o)
+        private List<int> ColliderPoints(Vector2[] o)
         {
             var idx = Enumerable.Range(0, o.Length).OrderBy(i => o[i].x).ThenBy(i => o[i].y).ToList();
             var hull = new List<int>(2 * o.Length);
