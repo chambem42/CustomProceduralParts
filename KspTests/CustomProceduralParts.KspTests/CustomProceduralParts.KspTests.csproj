@@ -27,6 +27,8 @@
     <ItemGroup>
         <PackageReference Include="Krafs.Publicizer" Version="2.2.1" PrivateAssets="all" />
         <Publicize Include="ProceduralParts;CustomProceduralParts" />
+        <!-- CustomProceduralParts's own copy of this (Krafs', internal) would clash with ours as a public type (CS0436) -->
+        <DoNotPublicize Include="CustomProceduralParts:System.Runtime.CompilerServices.IgnoresAccessChecksToAttribute" />
         <Reference Include="ProceduralParts">
             <HintPath>$(MSBuildThisFileDirectory)../../.refs/ProceduralParts.dll</HintPath>
             <Private>false</Private>
