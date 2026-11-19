@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using KspTest;
 using ProceduralParts;
 using RP0;
@@ -25,7 +26,7 @@ namespace CustomProceduralParts.RP1Tests
         private const string SpineTooling = "ModuleToolingProcSpine";
         private static string Max(ModuleToolingPTank t) => t.Fields["toolingMax"]?.GetValue<string>(t) ?? "";
         private static string Min(ModuleToolingPTank t) => t.Fields["toolingMin"]?.GetValue<string>(t) ?? "";
-        private static void Refresh(ModuleToolingPTank t) => t.GetType().GetMethod("Update")?.Invoke(t, null);
+        private static void Refresh(ModuleToolingPTank t) => t.GetType().GetMethod("UpdatePawLines")?.Invoke(t, null);
 
         private static void Restore(ProceduralShapeSpine s, List<SpineNode> saved)
         {
@@ -130,11 +131,21 @@ namespace CustomProceduralParts.RP1Tests
             float full = tool.GetToolingCost();
             ctx.Record("cost", full);
             Assert.True(full > 0f, $"tooling costs something ({full})");
+            // one cylinder's cost as RP-1 works it out (ModuleToolingDiamLen.GetToolingCost(d, l), by name)
+            float Cylinder(float dia) => tool.finalToolingCostMultiplier * (float)typeof(ModuleToolingDiamLen)
+                .GetMethod("GetToolingCost", BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(float), typeof(float) }, null)
+                .Invoke(tool, new object[] { dia, len });
+            float minCost = Cylinder(minD);
+            Assert.Near(Cylinder(maxD) + minCost, full, 0.001 * full, "both cylinders' cost");
             ToolingDatabase.UnlockTooling(type, maxD, len);
             Assert.False(tool.IsUnlocked(), "the widest cylinder alone doesn't tool it");
             float rest = tool.GetToolingCost();
             ctx.Record("costAfterMax", rest);
-            Assert.True(rest < full, $"cheaper with the widest tooled ({rest} < {full})");
+            // the tooled cylinder isn't charged again, nor listed
+            Assert.Near(minCost, rest, 0.001 * minCost, $"only the narrowest is charged with the widest tooled ({rest} of {full})");
+            info = tool.GetToolingParameterInfo();
+            ctx.Record("infoAfterMax", info);
+            Assert.True(info == $"{minD:F3}m x {len:F3}m", $"only the narrowest listed ({info})");
 
             // buying it tools both
             tool.PurchaseTooling();
