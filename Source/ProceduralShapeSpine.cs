@@ -1263,12 +1263,14 @@ namespace CustomProceduralParts
         // A spot on the skin: segment (its lower and upper node, and their positions then), how far along it
         // (0..1, by ring), round the section (outline index + fraction), and the attach point's height off the skin.
         // Or on an end cap (cap -1 the bottom, +1 the top): where on it, as a share of the end ring's half-extents.
+        // normal: the skin's outward normal there then (part frame), so what sits on it can turn with the skin.
         private struct SkinSpot
         {
             public SpineNode lo, hi;
             public float loPos, hiPos, along, round, height;
             public int cap;
             public Vector2 capAt;
+            public Vector3 normal;
         }
 
         // A point in a ring's plane (outline coordinates) in the part's frame, as RingV places outline points.
@@ -1311,7 +1313,7 @@ namespace CustomProceduralParts
                     var p2 = new Vector2(p.x - R.offsetX, p.z - R.offsetZ);
                     float h = (p.y - RingPoint(R, p2).y) * cap;
                     if (h * h >= best || !InOutline(R.outline, p2)) continue;
-                    return new SkinSpot { cap = cap, height = h,
+                    return new SkinSpot { cap = cap, height = h, normal = cap * Vector3.up,
                                           capAt = new Vector2(p2.x / Mathf.Max(1e-4f, R.rH), p2.y / Mathf.Max(1e-4f, R.rV)) };
                 }
             int s = SegmentOfRing(L, ringF);
@@ -1322,6 +1324,7 @@ namespace CustomProceduralParts
                 lo = L.nodes[s], hi = L.nodes[s + 1], loPos = L.pos[s], hiPos = L.pos[s + 1],
                 along = Mathf.Clamp01((ringF - L.segStart[s]) / span), round = roundF,
                 height = Vector3.Dot(p - at, nrm),
+                normal = nrm,
             };
         }
 
@@ -1457,8 +1460,12 @@ namespace CustomProceduralParts
                 if (c.FindAttachNodeByPart(part) is AttachNode cn && cn.nodeType == AttachNode.NodeType.Surface)
                 {
                     Vector3 local = part.transform.InverseTransformPoint(cn.owner.transform.TransformPoint(cn.position));
-                    snaps.Add(new AttachSnap { owner = this, kind = SnapKind.Child, node = cn, local = local, spot = SpotOf(L, local) });
+                    // still where the last rebuild put it: the same spot (finding it again by nearest point lands a
+                    // hair off, with a normal a hair different, and over many edits the part would creep and lean)
+                    SkinSpot spot = _placed.TryGetValue(c, out var was) && (was.local - local).sqrMagnitude < 1e-8f ? was.spot : SpotOf(L, local);
+                    snaps.Add(new AttachSnap { owner = this, kind = SnapKind.Child, node = cn, local = local, spot = spot });
                 }
+            if (_placed.Count > 0) foreach (Part gone in _placed.Keys.Where(k => k == null || k.parent != part).ToList()) _placed.Remove(gone);
             if (self && SelfSnap(L) is AttachSnap me) snaps.Add(me);
         }
 
@@ -1497,9 +1504,17 @@ namespace CustomProceduralParts
                         case SnapKind.Child:
                         {
                             if (s.node.owner == null) break;
-                            Vector3 to = m.part.transform.TransformPoint(m.PlaceOf(L, s.spot, out _));
-                            Vector3 now = s.node.owner.transform.TransformPoint(s.node.position);
-                            if ((to - now).sqrMagnitude > 1e-10f) s.node.owner.transform.Translate(to - now, Space.World);
+                            Transform ct = s.node.owner.transform;
+                            Vector3 to = m.part.transform.TransformPoint(m.PlaceOf(L, s.spot, out Vector3 normal));
+                            // turned as the skin under it turned (a part sits flat on its face), then moved onto it
+                            Quaternion turn = Quaternion.FromToRotation(m.part.transform.TransformDirection(s.spot.normal),
+                                                                        m.part.transform.TransformDirection(normal));
+                            if (Quaternion.Angle(turn, Quaternion.identity) > 0.01f) ct.rotation = turn * ct.rotation;
+                            Vector3 now = ct.TransformPoint(s.node.position);
+                            if ((to - now).sqrMagnitude > 1e-10f) ct.Translate(to - now, Space.World);
+                            SkinSpot placed = s.spot;
+                            placed.normal = normal;
+                            m._placed[s.node.owner] = (m.part.transform.InverseTransformPoint(to), placed);
                             break;
                         }
                         case SnapKind.Self:
@@ -1519,6 +1534,9 @@ namespace CustomProceduralParts
         // A gizmo drag moves this part's own surface attachment once, at the end, from where it was at the start
         // (moving the part under the cursor mid-drag would fight the drag).
         private AttachSnap? _dragSelf;
+
+        // Each surface-attached child's spot as last placed, and where that put its attach point (part frame).
+        private readonly Dictionary<Part, (Vector3 local, SkinSpot spot)> _placed = new Dictionary<Part, (Vector3, SkinSpot)>();
 
         #endregion
 

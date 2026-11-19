@@ -1351,7 +1351,8 @@ namespace CustomProceduralParts.KspTests
 
         /// <summary>
         /// A part surface-attached to the Spine stays on its skin through every kind of edit: node width, height,
-        /// offsets, tilt, section, slope and position, and the part's length and width scale.
+        /// offsets, tilt, section, slope and position, and the part's length and width scale. And flat on it: it
+        /// turns as the face under it turns.
         /// </summary>
         [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineAttach")]
         public static IEnumerator Editor_SurfaceAttachmentsStayOnTheSkin(TestContext ctx)
@@ -1362,6 +1363,10 @@ namespace CustomProceduralParts.KspTests
             AttachNode an = child.FindAttachNodeByPart(s.part);
             Assert.True(an != null && an.nodeType == AttachNode.NodeType.Surface, "surface-attached");
             Vector3 At() => an.owner.transform.TransformPoint(an.position);
+            // the skin's outward normal at the attach point (the loft as built), and how far the part leans off it
+            // (its attach direction points into the body, as the editor sets a part on a face)
+            Vector3 SkinNormal() => s.part.transform.TransformDirection(s.SpotOf(s._built, s.part.transform.InverseTransformPoint(At())).normal);
+            float Lean() => Vector3.Angle(-an.owner.transform.TransformDirection(an.orientation), SkinNormal());
 
             // onto the skin, between the Mk2 and Rectangle nodes, round from the side
             MeshFilter sides = s.part.GetComponentsInChildren<MeshFilter>(true).First(mf => mf.sharedMesh == s.PPart.SidesMesh);
@@ -1377,8 +1382,11 @@ namespace CustomProceduralParts.KspTests
             Object.DestroyImmediate(go);
             Assert.True(onSkin, "the probe ray hits the skin");
             child.transform.Translate(hit.point - At(), Space.World);
+            // flat on the face there
+            child.transform.rotation = Quaternion.FromToRotation(-an.owner.transform.TransformDirection(an.orientation), SkinNormal()) * child.transform.rotation;
+            child.transform.Translate(hit.point - At(), Space.World);
             yield return Wait.Frames(2);
-            ctx.Record("start", $"{SkinDistance(s, At()):F4} m off");
+            ctx.Record("start", $"{SkinDistance(s, At()):F4} m off, leaning {Lean():F2} deg");
 
             var steps = new (string name, System.Action act)[]
             {
@@ -1402,11 +1410,12 @@ namespace CustomProceduralParts.KspTests
                 Vector3 before = At();
                 act();
                 yield return Wait.Frames(2);
-                float d = SkinDistance(s, At());
-                ctx.Record(name, $"{d:F4} m off, moved {(At() - before).magnitude:F3} m");
+                float d = SkinDistance(s, At()), lean = Lean();
+                ctx.Record(name, $"{d:F4} m off, leaning {lean:F2} deg, moved {(At() - before).magnitude:F3} m");
                 if (d > 0.01f) fails.Add($"{name}: {d:F3} m off the skin");
+                if (lean > 0.5f) fails.Add($"{name}: leaning {lean:F1} deg off the skin");
             }
-            Assert.True(fails.Count == 0, "the barometer stays on the skin: " + string.Join("; ", fails));
+            Assert.True(fails.Count == 0, "the barometer stays flat on the skin: " + string.Join("; ", fails));
         }
 
         /// <summary>

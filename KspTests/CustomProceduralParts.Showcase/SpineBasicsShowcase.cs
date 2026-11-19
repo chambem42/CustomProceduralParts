@@ -209,9 +209,13 @@ namespace CustomProceduralParts.Showcase
                 rec.Caption("Attach parts anywhere on it", "A part turns to sit flat on whatever face is under it");
                 Part intakeTop = null, intakeSide = null;
                 {
-                    // one over the side, up and onto the top; another across the top and down onto the side
-                    RaycastHit? top = SkinAt(part, s, mid, 0.7f, Up(part)), sideHit = SkinAt(part, s, mid, -0.1f, Side(part));
-                    RaycastHit? side2 = SkinAt(part, s, mid, 0.7f, Side(part)), top2 = SkinAt(part, s, mid, -0.1f, Up(part));
+                    // both halfway along a straight stretch (between its two nodes, clear of a node's section change,
+                    // tilt and slope): one over the side, up and onto the top; another across the top (beyond the
+                    // first) and down onto the side
+                    int seg = StraightSegment(s);
+                    ctx.Record("attachSegment", seg);
+                    RaycastHit? top = SkinBetween(part, s, seg, 0.5f, Up(part)), sideHit = SkinBetween(part, s, seg, 0.5f, Side(part));
+                    RaycastHit? side2 = SkinBetween(part, s, seg, 0.5f, Side(part)), top2 = SkinBetween(part, s, seg, 0.8f, Up(part));
                     if (top != null && sideHit != null && side2 != null && top2 != null)
                     {
                         yield return AttachRadial(part, "airScoop", new[] { side2.Value, top.Value }, p => intakeTop = p);
@@ -385,14 +389,19 @@ namespace CustomProceduralParts.Showcase
             return v.normalized;
         }
 
-        // Where a ray from outside, in direction dir toward node i's centre (its offsets included; + dy m along the
-        // spine), meets the body's collider.
-        private static RaycastHit? SkinAt(Part body, ProceduralShapeSpine s, int i, float dy, Vector3 dir)
+        // Where a ray from outside, in direction dir, toward the centre `t` of the way from node i's centre to node
+        // i + 1's (their offsets included) meets the body's collider.
+        private static RaycastHit? SkinBetween(Part body, ProceduralShapeSpine s, int i, float t, Vector3 dir)
         {
-            SpineNode n = s.nodes[i];
-            Vector3 axisPt = body.transform.TransformPoint(new Vector3(s.EoffH(n), s.NodeY(n) + dy, s.Eoff(n)));
+            Vector3 Centre(SpineNode n) => new Vector3(s.EoffH(n), s.NodeY(n), s.Eoff(n));
+            Vector3 axisPt = body.transform.TransformPoint(Vector3.Lerp(Centre(s.nodes[i]), Centre(s.nodes[i + 1]), t));
             return BodyHit(body, new Ray(axisPt + 20f * dir, -dir));
         }
+
+        // The longest straight stretch: the segment (from node k to k + 1) with a Linear slope, longest first.
+        private static int StraightSegment(ProceduralShapeSpine s) =>
+            Enumerable.Range(0, s.nodes.Count - 1).OrderBy(k => s.nodes[k].slopeAbove == SpineSlope.Linear ? 0 : 1)
+                .ThenByDescending(k => s.nodes[k + 1].position - s.nodes[k].position).First();
 
         private static RaycastHit? BodyHit(Part body, Ray ray)
         {
