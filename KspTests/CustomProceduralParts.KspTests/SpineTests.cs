@@ -1481,5 +1481,64 @@ namespace CustomProceduralParts.KspTests
             Assert.True(fails.Count == 0, string.Join("\n", fails));
             Assert.Equal(states[0], State(), "undone to the start");
         }
+
+        /// <summary>
+        /// Undo on a symmetric pair of Spines puts both back: the part-wide fields (which the PAW sets on the
+        /// counterparts itself) as well as node edits (which the Spine copies across).
+        /// </summary>
+        [UITest(Kind = "Check", StartsAt = StartState.Sph, Craft = "SpineSym")]
+        public static IEnumerator Editor_SymmetricSpineEditsUndo(TestContext ctx)
+        {
+            var restore = typeof(EditorLogic).GetMethod("RestoreState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(restore, "EditorLogic.RestoreState");
+            List<ProceduralShapeSpine> Pair() => EditorLogic.fetch.ship.parts.Where(p => p.parent != null)
+                .Select(p => p.FindModuleImplementing<ProceduralShapeSpine>()).ToList();
+            string State() => string.Join(" || ", Pair().Select(m => m.DumpAll()));
+            // as the PAW sets a field: on the part, on its counterparts if the control says so, then the change
+            void Pawed(string field, object to)
+            {
+                ProceduralShapeSpine sp = Pair()[0];
+                BaseField f = sp.Fields[field];
+                object old = f.GetValue(sp);
+                f.SetValue(to, sp);
+                if ((f.uiControlEditor.affectSymCounterparts & UI_Scene.Editor) != 0)
+                    foreach (Part p in sp.part.symmetryCounterparts)
+                        if (p.FindModuleImplementing<ProceduralShapeSpine>() is ProceduralShapeSpine m) m.Fields[field].SetValue(to, m);
+                f.uiControlEditor.onFieldChanged(f, old);
+            }
+
+            Assert.Equal(2, Pair().Count, "two Spines on the root");
+            Assert.Equal(1, Pair()[0].part.symmetryCounterparts.Count, "in symmetry");
+            var states = new List<string> { State() };
+            Pawed("length", Pair()[0].length + 1f);
+            states.Add(State());
+            Pawed("hScale", 1.5f);
+            states.Add(State());
+            Pair()[0].SelectNode(1);
+            Pawed("nodeWidth", Pair()[0].nodes[1].sizeH + 0.3f);
+            states.Add(State());
+            foreach (string st in states) ctx.Record("state", st);
+            yield return Wait.Frames(5);
+
+            var fails = new List<string>();
+            for (int i = 1; i < states.Count; i++)
+            {
+                string[] two = states[i].Split(new[] { " || " }, System.StringSplitOptions.None);
+                if (two[0] != two[1]) fails.Add($"step {i} not on both: {states[i]}");
+            }
+            for (int i = states.Count - 2; i >= 0; i--)
+            {
+                restore.Invoke(EditorLogic.fetch, new object[] { -1 });
+                yield return Wait.Frames(5);
+                if (State() != states[i]) fails.Add($"undo to step {i}: {State()} (want {states[i]})");
+            }
+            for (int i = 1; i < states.Count; i++)
+            {
+                restore.Invoke(EditorLogic.fetch, new object[] { 1 });
+                yield return Wait.Frames(5);
+                if (State() != states[i]) fails.Add($"redo to step {i}: {State()} (want {states[i]})");
+            }
+            Assert.True(fails.Count == 0, string.Join("\n", fails));
+        }
     }
 }

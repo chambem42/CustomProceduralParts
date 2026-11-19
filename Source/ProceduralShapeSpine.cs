@@ -473,10 +473,15 @@ namespace CustomProceduralParts
             ConfigNode pre = null;
             if (SpineUndo.WantsBefore(this, key))
             {
-                object now = f.GetValue(this);
-                f.SetValue(old, this);
+                // the PAW sets a field that affects counterparts on them before calling this: theirs back too
+                var hosts = new List<ProceduralShapeSpine> { this };
+                if ((f.uiControlEditor.affectSymCounterparts & UI_Scene.Editor) != 0)
+                    foreach (Part p in part.symmetryCounterparts)
+                        if (FindAbstractShapeModule(p, this) is ProceduralShapeSpine m) hosts.Add(m);
+                object[] now = hosts.Select(h => h.Fields[f.name].GetValue(h)).ToArray();
+                foreach (ProceduralShapeSpine h in hosts) h.Fields[f.name].SetValue(old, h);
                 try { pre = SpineUndo.Snapshot(); }
-                finally { f.SetValue(now, this); }
+                finally { for (int i = 0; i < hosts.Count; i++) hosts[i].Fields[f.name].SetValue(now[i], hosts[i]); }
             }
             change();
             SpineUndo.After(this, key, pre);
@@ -1336,10 +1341,34 @@ namespace CustomProceduralParts
             return Math.Max(0, segs - 1);
         }
 
-        // Where a spot is on the current loft: its segment by its nodes when they're still neighbours, else by the
-        // spine position it was at.
+        // The spot's nodes are still neighbours (an end cap's spot has none).
+        private bool Current(SkinSpot sp)
+        {
+            if (sp.cap != 0) return true;
+            int s = nodes.IndexOf(sp.lo);
+            return s >= 0 && s + 1 < nodes.Count && nodes[s + 1] == sp.hi;
+        }
+
+        // The spot on the nodes as they are now: on its own segment while its nodes are still neighbours, else
+        // on the segment at the spine position it was at (a node added or removed around it).
+        private SkinSpot Rebased(SkinSpot sp)
+        {
+            if (Current(sp)) return sp;
+            float pos = Mathf.Lerp(sp.loPos, sp.hiPos, sp.along);
+            int s = 0;
+            while (s < nodes.Count - 2 && nodes[s + 1].position < pos) s++;
+            sp.lo = nodes[s];
+            sp.hi = nodes[s + 1];
+            sp.loPos = nodes[s].position;
+            sp.hiPos = nodes[s + 1].position;
+            sp.along = Mathf.Clamp01(Mathf.InverseLerp(sp.loPos, sp.hiPos, pos));
+            return sp;
+        }
+
+        // Where a spot is on the current loft.
         private Vector3 PlaceOf(Loft L, SkinSpot sp, out Vector3 normal)
         {
+            sp = Rebased(sp);
             if (sp.cap != 0)
             {
                 Ring R = L.rings[sp.cap < 0 ? 0 : L.rings.Count - 1];
@@ -1347,15 +1376,7 @@ namespace CustomProceduralParts
                 return RingPoint(R, new Vector2(sp.capAt.x * R.rH, sp.capAt.y * R.rV)) + sp.height * normal;
             }
             int s = nodes.IndexOf(sp.lo);
-            float along = sp.along;
-            if (s < 0 || s + 1 >= nodes.Count || nodes[s + 1] != sp.hi)
-            {
-                float pos = Mathf.Lerp(sp.loPos, sp.hiPos, sp.along);
-                s = 0;
-                while (s < nodes.Count - 2 && nodes[s + 1].position < pos) s++;
-                along = Mathf.Clamp01(Mathf.InverseLerp(nodes[s].position, nodes[s + 1].position, pos));
-            }
-            float ringF = L.segStart[s] + along * (L.segStart[s + 1] - L.segStart[s]);
+            float ringF = L.segStart[s] + sp.along * (L.segStart[s + 1] - L.segStart[s]);
             Skin(L, ringF, sp.round, out Vector3 at, out normal);
             return at + sp.height * normal;
         }
@@ -1462,7 +1483,8 @@ namespace CustomProceduralParts
                     Vector3 local = part.transform.InverseTransformPoint(cn.owner.transform.TransformPoint(cn.position));
                     // still where the last rebuild put it: the same spot (finding it again by nearest point lands a
                     // hair off, with a normal a hair different, and over many edits the part would creep and lean)
-                    SkinSpot spot = _placed.TryGetValue(c, out var was) && (was.local - local).sqrMagnitude < 1e-8f ? was.spot : SpotOf(L, local);
+                    SkinSpot spot = _placed.TryGetValue(c, out var was) && (was.local - local).sqrMagnitude < 1e-8f && Current(was.spot)
+                        ? was.spot : SpotOf(L, local);
                     snaps.Add(new AttachSnap { owner = this, kind = SnapKind.Child, node = cn, local = local, spot = spot });
                 }
             if (_placed.Count > 0) foreach (Part gone in _placed.Keys.Where(k => k == null || k.parent != part).ToList()) _placed.Remove(gone);
@@ -1505,14 +1527,14 @@ namespace CustomProceduralParts
                         {
                             if (s.node.owner == null) break;
                             Transform ct = s.node.owner.transform;
-                            Vector3 to = m.part.transform.TransformPoint(m.PlaceOf(L, s.spot, out Vector3 normal));
+                            SkinSpot placed = m.Rebased(s.spot);
+                            Vector3 to = m.part.transform.TransformPoint(m.PlaceOf(L, placed, out Vector3 normal));
                             // turned as the skin under it turned (a part sits flat on its face), then moved onto it
                             Quaternion turn = Quaternion.FromToRotation(m.part.transform.TransformDirection(s.spot.normal),
                                                                         m.part.transform.TransformDirection(normal));
                             if (Quaternion.Angle(turn, Quaternion.identity) > 0.01f) ct.rotation = turn * ct.rotation;
                             Vector3 now = ct.TransformPoint(s.node.position);
                             if ((to - now).sqrMagnitude > 1e-10f) ct.Translate(to - now, Space.World);
-                            SkinSpot placed = s.spot;
                             placed.normal = normal;
                             m._placed[s.node.owner] = (m.part.transform.InverseTransformPoint(to), placed);
                             break;
@@ -1777,6 +1799,7 @@ namespace CustomProceduralParts
             UpdateOutlines(selected);
             if (!HighLogic.LoadedSceneIsEditor || nodes.Count == 0 || PPart == null || PPart.CurrentShape != this || !selected)
             {
+                FinishDrag();
                 CleanupGizmo();
                 return;
             }
@@ -2481,10 +2504,26 @@ namespace CustomProceduralParts
             _outlineKey = int.MinValue;
         }
 
+        // A drag cut off before the button came up (the part deselected): synced and recorded as a release would.
+        private void FinishDrag()
+        {
+            if (_dragIndex < 0 && _tipDragIndex < 0) return;
+            _dragIndex = -1;
+            _tipDragIndex = -1;
+            _dragAxis = 0;
+            if (HighLogic.LoadedSceneIsEditor && nodes.Count > 0)
+            {
+                RebuildAndPropagate();
+                EndDragUndo();
+            }
+        }
+
         private void CleanupGizmo()
         {
             _dragIndex = -1;
             _tipDragIndex = -1;
+            _dragMoved = false;
+            _dragPre = null;
             SetInputLock(false);
             DestroyAll(_nodeHandles);
             DestroyAll(_profIcons);
