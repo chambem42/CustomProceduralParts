@@ -55,7 +55,7 @@ namespace CustomProceduralParts.RP1Tests
             var tooled = spineParts.Where(p => p.FindModuleImplementing<ModuleToolingPTank>() != null).ToList();
             ctx.Record("spineParts", spineParts.Count);
             ctx.Record("tooled", string.Join(" ", tooled.Select(p => $"{p.partInfo.name}:{p.FindModuleImplementing<ModuleToolingPTank>().GetType().Name}")));
-            // RP-1 tools these: structural (Stringers), a procedural fuel tank, and avionics
+            // RP-1 tools these: structural (Stringers) and a procedural fuel tank
             void Has<T>(string name)
             {
                 Part prefab = PartLoader.getPartInfoByName(name)?.partPrefab;
@@ -65,7 +65,11 @@ namespace CustomProceduralParts.RP1Tests
             }
             Has<ModuleToolingPTank>("proceduralStructural");
             Has<ModuleToolingPTank>("RO-RFTank-Separate");
-            Has<ModuleToolingProcAvionics>("proceduralAvionics");
+            // and RP-1 takes the Spine off procedural avionics (one diameter x length tooling)
+            Part avionics = PartLoader.getPartInfoByName("proceduralAvionics")?.partPrefab;
+            Assert.NotNull(avionics, "proceduralAvionics is loaded");
+            Assert.True(avionics.FindModuleImplementing<ProceduralShapeSpine>() == null, "proceduralAvionics can't be a Spine");
+            Assert.True(avionics.FindModuleImplementing<ModuleToolingPTank>()?.GetType() == typeof(ModuleToolingProcAvionics), "proceduralAvionics' tooling is ModuleToolingProcAvionics");
         }
 
         // RP-1 tools only in career (ToolingManager.toolingEnabled, set from the game mode); the tests run in sandbox.
