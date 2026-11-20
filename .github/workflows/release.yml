@@ -99,6 +99,8 @@ jobs:
           TAG: ${{ github.ref_name }}
           VER: ${{ needs.version.outputs.version }}
         run: |
-          # checkout can leave an annotated tag as a lightweight one: the tag itself, for its message
+          # checkout can leave an annotated tag as a lightweight one: the tag itself, for its message (a lightweight
+          # tag's is its commit's). Written to a file: gh's --notes-from-tag won't go with --repo.
           git fetch --no-tags --force origin "refs/tags/$TAG:refs/tags/$TAG"
-          gh release create "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --title "$VER" --notes-from-tag --verify-tag
+          git tag -l --format='%(contents)' "$TAG" > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --title "$VER" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
