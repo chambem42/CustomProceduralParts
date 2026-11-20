@@ -33,6 +33,8 @@ jobs:
       contents: read
       pull-requests: write
       statuses: write
+      # the job's OIDC token, for KspTest's game broker
+      id-token: write
     secrets: inherit
     with:
       test-project: KspTests/CustomProceduralParts.KspTests.Run
